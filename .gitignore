@@ -1,3 +1,4 @@
+here
 # macOS
 .DS_Store
 
@@ -10,7 +11,9 @@ __pycache__/
 .venv/
 .env
 .env.*
-
+# Allow example envs
+!frontend/.env.local.example
+!backend/.env.example
 # FastAPI/exports
 backend/app/exports/*.mp4
 backend/app/exports/*.zip
@@ -20,3 +23,4 @@ backend/app/exports/*.png
 frontend/node_modules/
 frontend/.next/
 frontend/.env.local
+!frontend/.env.local.example
