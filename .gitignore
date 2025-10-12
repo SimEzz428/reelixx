@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+.venv/
+.env
+.env.*
+
+# FastAPI/exports
+backend/app/exports/*.mp4
+backend/app/exports/*.zip
+backend/app/exports/*.png
+
+# Node/Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
