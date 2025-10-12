@@ -1,0 +1,9 @@
+[flake8]
+max-line-length = 120
+extend-ignore = E203,W503
+
+# Quiet known false-positives / quick wins while we're iterating the MVP
+per-file-ignores =
+    backend/app/models.py: F811
+    backend/app/generators/video_stub.py: F401,E401,E501
+    backend/app/routers/exportpack.py: E401,E501

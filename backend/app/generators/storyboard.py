@@ -6,8 +6,10 @@ from typing import Any, Dict, List
 
 DEFAULT_CANVAS = {"w": 1080, "h": 1920, "fps": 30}
 
+
 def _overlay_text(text: str, style: str = "default") -> Dict[str, Any]:
     return {"type": "text", "text": text, "style": style}
+
 
 def _endcard_overlay(brief: Dict[str, Any]) -> List[Dict[str, Any]]:
     # brand may be a dict (with color/logo) or a plain string (brand name only)
@@ -25,6 +27,7 @@ def _endcard_overlay(brief: Dict[str, Any]) -> List[Dict[str, Any]]:
         {"type": "logo", "url": logo} if logo else {"type": "shape", "shape": "circle"},
     ]
 
+
 def _beat_visual(beat_id: str, brief: Dict[str, Any]) -> Dict[str, Any]:
     title = brief.get("title") or "product"
     images = brief.get("images") or []
@@ -41,18 +44,29 @@ def _beat_visual(beat_id: str, brief: Dict[str, Any]) -> Dict[str, Any]:
             "query": f"close-up {title}, dramatic lighting, vertical",
         }
     if beat_id == "value":
-        return {"type": "user_or_stock", "query": f"{title} in use, hands-on vertical demo"}
+        return {
+            "type": "user_or_stock",
+            "query": f"{title} in use, hands-on vertical demo",
+        }
     if beat_id == "proof":
         return {"type": "stock", "query": "happy customer reaction, lifestyle vertical"}
     if beat_id == "cta":
         return {"type": "endcard", "brand": True}
     return {"type": "stock", "query": f"{title} abstract motion"}
 
+
 def _transition_in(beat_id: str) -> str:
     return "cut" if beat_id == "hook" else "whip"
 
+
 def _sfx_for(beat_id: str) -> str:
-    return {"hook": "whoosh", "value": "whoosh", "proof": "soft_pop", "cta": "click"}.get(beat_id, "whoosh")
+    return {
+        "hook": "whoosh",
+        "value": "whoosh",
+        "proof": "soft_pop",
+        "cta": "click",
+    }.get(beat_id, "whoosh")
+
 
 def compose_storyboard(script: Dict[str, Any], brief: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -86,7 +100,11 @@ def compose_storyboard(script: Dict[str, Any], brief: Dict[str, Any]) -> Dict[st
     return {
         "version": "1.0",
         "canvas": DEFAULT_CANVAS,
-        "audio": {"music": "upbeat_01", "duck": True, "vo_text": " ".join([b.get("vo","") for b in beats])},
+        "audio": {
+            "music": "upbeat_01",
+            "duck": True,
+            "vo_text": " ".join([b.get("vo", "") for b in beats]),
+        },
         "scenes": scenes,
         "exports": [{"preset": "vertical_1080p"}],
     }

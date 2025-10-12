@@ -10,6 +10,7 @@ from ..generators.video_stub import EXPORT_DIR  # same dir used for MP4s
 
 router = APIRouter()
 
+
 @router.post("/variants/{variant_id}/export_zip")
 def export_variant_zip(variant_id: int, db: Session = Depends(get_db)):
     v = db.get(models.Variant, variant_id)
@@ -29,7 +30,9 @@ def export_variant_zip(variant_id: int, db: Session = Depends(get_db)):
 
     # Make JSON text safely
     script_json_text = json.dumps(v.script_json or {}, indent=2, ensure_ascii=False)
-    storyboard_json_text = json.dumps(v.storyboard_json or {}, indent=2, ensure_ascii=False)
+    storyboard_json_text = json.dumps(
+        v.storyboard_json or {}, indent=2, ensure_ascii=False
+    )
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -45,7 +48,7 @@ def export_variant_zip(variant_id: int, db: Session = Depends(get_db)):
 
     return {
         "ok": True,
-        "download": f"/download/{zip_name}",   # your Force-Download route
+        "download": f"/download/{zip_name}",  # your Force-Download route
         "files": {
             "mp4": f"/exports/{mp4_name}",
             "script": f"variant_{variant_id}_script.json",

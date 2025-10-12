@@ -4,6 +4,7 @@ from ..utils_scrape import scrape_brief
 
 router = APIRouter()
 
+
 @router.post("/", response_model=ScrapeOut)
 async def scrape(inb: ScrapeIn) -> ScrapeOut:
     try:

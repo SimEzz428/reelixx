@@ -9,6 +9,7 @@ from ..generators.video_stub import render_storyboard_to_mp4
 
 router = APIRouter()
 
+
 def _brand_color(project: models.Project) -> str | None:
     brand = project.brand_json or {}
     if isinstance(brand, dict):
@@ -16,6 +17,7 @@ def _brand_color(project: models.Project) -> str | None:
         if isinstance(c, str):
             return c
     return None
+
 
 # IMPORTANT: no "/variants" here – the router is already included with prefix="/variants"
 @router.post("/{variant_id}/assemble")

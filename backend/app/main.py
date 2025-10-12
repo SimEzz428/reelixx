@@ -31,6 +31,8 @@ Base.metadata.create_all(bind=engine)
 EXPORT_DIR = Path(__file__).resolve().parent / "exports"
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/exports", StaticFiles(directory=str(EXPORT_DIR)), name="exports")
+
+
 @app.get("/download/{filename}")
 def force_download(filename: str):
     safe = Path(filename).name  # prevent path traversal
@@ -43,9 +45,11 @@ def force_download(filename: str):
         filename=safe,  # sets Content-Disposition: attachment; filename="..."
     )
 
+
 @app.get("/health", tags=["meta"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
 
 # Routers
 app.include_router(scrape.router, prefix="/scrape", tags=["scrape"])

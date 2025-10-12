@@ -9,8 +9,11 @@ from moviepy import vfx
 
 # ---------- Paths ----------
 APP_DIR = Path(__file__).resolve().parent  # backend/app/generators
-EXPORT_DIR = APP_DIR.parent / "exports"    # backend/app/exports (matches StaticFiles mount)
+EXPORT_DIR = (
+    APP_DIR.parent / "exports"
+)  # backend/app/exports (matches StaticFiles mount)
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # ---------- Helpers ----------
 def _hex_to_rgb(h: str | None, default=(17, 17, 17)) -> Tuple[int, int, int]:
@@ -19,12 +22,13 @@ def _hex_to_rgb(h: str | None, default=(17, 17, 17)) -> Tuple[int, int, int]:
     c = h.strip().lstrip("#")
     try:
         if len(c) == 6:
-            return (int(c[0:2],16), int(c[2:4],16), int(c[4:6],16))
+            return (int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
         if len(c) == 3:
-            return tuple(int(x*2, 16) for x in c)  # type: ignore
+            return tuple(int(x * 2, 16) for x in c)  # type: ignore
     except Exception:
         pass
     return default
+
 
 def _pick_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     # Try a few common fonts by platform; fallback to default bitmap
@@ -41,14 +45,17 @@ def _pick_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
                 continue
     return ImageFont.load_default()
 
-def _draw_frame(w: int, h: int, bg_rgb: Tuple[int,int,int], lines: List[str]) -> np.ndarray:
+
+def _draw_frame(
+    w: int, h: int, bg_rgb: Tuple[int, int, int], lines: List[str]
+) -> np.ndarray:
     """Return an RGB numpy array frame with centered text lines."""
     img = Image.new("RGB", (w, h), bg_rgb)
     draw = ImageDraw.Draw(img)
 
     # Title-ish first line larger
-    sizes = [int(h*0.06)] + [int(h*0.045)]*(max(0, len(lines)-1))
-    y = int(h*0.30)
+    sizes = [int(h * 0.06)] + [int(h * 0.045)] * (max(0, len(lines) - 1))
+    y = int(h * 0.30)
     for i, text in enumerate(lines):
         font = _pick_font(sizes[i])
         # Wrap text lightly: limit ~28 chars per line slice
@@ -56,14 +63,15 @@ def _draw_frame(w: int, h: int, bg_rgb: Tuple[int,int,int], lines: List[str]) ->
         if not text:
             continue
         # Measure
-        tw, th = draw.textbbox((0,0), text, font=font)[2:]
-        x = (w - tw)//2
-        draw.text((x, y), text, fill=(255,255,255), font=font)
-        y += th + int(h*0.03)
+        tw, th = draw.textbbox((0, 0), text, font=font)[2:]
+        x = (w - tw) // 2
+        draw.text((x, y), text, fill=(255, 255, 255), font=font)
+        y += th + int(h * 0.03)
 
     # Safe-area guide (subtle)
     # draw.rectangle([int(w*0.05), int(h*0.05), int(w*0.95), int(h*0.95)], outline=(255,255,255))
     return np.array(img)
+
 
 def _caption_lines(beat: Dict[str, Any]) -> List[str]:
     # Prefer overlay text, else vo, trimmed to short bursts
@@ -76,30 +84,35 @@ def _caption_lines(beat: Dict[str, Any]) -> List[str]:
         parts = [t]
     return parts[:2]
 
+
 # ---------- Public API ----------
 def render_storyboard_to_mp4(
     storyboard: Dict[str, Any],
     *,
     brand_color_hex: str | None = None,
-    outfile_basename: str | None = None
+    outfile_basename: str | None = None,
 ) -> Dict[str, Any]:
     """
     Renders a simple vertical MP4 from storyboard JSON (text-only scenes).
     Returns: { ok, path, url? }
     """
-    canvas = storyboard.get("canvas") or {"w":1080,"h":1920,"fps":30}
-    w, h, fps = int(canvas.get("w",1080)), int(canvas.get("h",1920)), int(canvas.get("fps",30))
+    canvas = storyboard.get("canvas") or {"w": 1080, "h": 1920, "fps": 30}
+    w, h, fps = (
+        int(canvas.get("w", 1080)),
+        int(canvas.get("h", 1920)),
+        int(canvas.get("fps", 30)),
+    )
 
     scenes = storyboard.get("scenes") or []
     if not scenes:
         raise ValueError("Storyboard has no scenes")
 
-    bg_rgb = _hex_to_rgb(brand_color_hex, default=(17,17,17))
+    bg_rgb = _hex_to_rgb(brand_color_hex, default=(17, 17, 17))
 
     clips = []
     for s in scenes:
         start = float(s.get("start", 0.0))
-        end = float(s.get("end", start+2.0))
+        end = float(s.get("end", start + 2.0))
         dur = max(0.4, end - start)
 
         lines = _caption_lines(s)

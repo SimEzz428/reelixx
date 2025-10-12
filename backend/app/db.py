@@ -12,7 +12,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./reelixx.db")
 # `check_same_thread=False` is needed for SQLite in dev with FastAPI/uvicorn reload.
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    connect_args=(
+        {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+    ),
     future=True,
 )
 
@@ -21,6 +23,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 class Base(DeclarativeBase):
     """Base class for ORM models."""
+
     pass
 
 

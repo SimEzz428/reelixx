@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
-from fastapi import HTTPException 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
-import json  
-from ..generators.script import generate_script  
+import json
+from ..generators.script import generate_script
 from ..generators.storyboard import compose_storyboard  # NEW
 
 from .. import models, schemas
@@ -10,6 +10,7 @@ from ..db import get_db
 from ..models import Variant, Job, JobStatus
 
 router = APIRouter()
+
 
 @router.post("/", response_model=schemas.ProjectOut)
 def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)):
@@ -25,6 +26,7 @@ def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)
     db.refresh(project)
     return project
 
+
 @router.post("/{project_id}/generate", response_model=schemas.JobOut)
 def generate_variant(
     project_id: int,
@@ -37,8 +39,10 @@ def generate_variant(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Create a draft variant
-    tone = (payload.tones[0] if payload.tones else None)
-    variant = Variant(project_id=project.id, tone=tone, persona=payload.persona, status="draft")
+    tone = payload.tones[0] if payload.tones else None
+    variant = Variant(
+        project_id=project.id, tone=tone, persona=payload.persona, status="draft"
+    )
     db.add(variant)
 
     # Create a job and mark running
@@ -60,14 +64,14 @@ def generate_variant(
     # Finish the job with the script embedded in logs
     job.status = JobStatus.completed
     job.logs = json.dumps(
-        {"script": script_json, "storyboard": storyboard_json},
-        indent=2
+        {"script": script_json, "storyboard": storyboard_json}, indent=2
     )
     db.add(job)
     db.commit()
     db.refresh(job)
 
     return job
+
 
 @router.get("/{project_id}/variants/latest", response_model=schemas.VariantOut)
 def get_latest_variant(project_id: int, db: Session = Depends(get_db)):

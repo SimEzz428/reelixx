@@ -3,16 +3,28 @@ from typing import Any, Dict, List
 import re
 import random
 
+
 def _slugify_words(text: str) -> List[str]:
     text = re.sub(r"[^a-zA-Z0-9\s-]", " ", text).lower()
     words = [w for w in text.split() if len(w) > 2][:5]
     return words
 
-def _mix_hashtags(product_words: List[str], tone: str | None, persona: str | None) -> List[str]:
+
+def _mix_hashtags(
+    product_words: List[str], tone: str | None, persona: str | None
+) -> List[str]:
     core = {f"#{w}" for w in product_words}
     generic = {
-        "#tiktokmademebuyit", "#viral", "#musthave", "#ad", "#giftideas",
-        "#smallbusiness", "#onlineshopping", "#deal", "#trend", "#foryou"
+        "#tiktokmademebuyit",
+        "#viral",
+        "#musthave",
+        "#ad",
+        "#giftideas",
+        "#smallbusiness",
+        "#onlineshopping",
+        "#deal",
+        "#trend",
+        "#foryou",
     }
     style = set()
     t = (tone or "").lower()
@@ -29,7 +41,14 @@ def _mix_hashtags(product_words: List[str], tone: str | None, persona: str | Non
     random.shuffle(pool)
     return pool[:10]
 
-def generate_post_text(brief: Dict[str, Any] | None, script: Dict[str, Any] | None, *, tone: str | None, persona: str | None) -> Dict[str, Any]:
+
+def generate_post_text(
+    brief: Dict[str, Any] | None,
+    script: Dict[str, Any] | None,
+    *,
+    tone: str | None,
+    persona: str | None,
+) -> Dict[str, Any]:
     """
     Returns:
     {

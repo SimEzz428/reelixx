@@ -1,7 +1,8 @@
 // frontend/src/lib/api.ts
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ||
+  "http://localhost:8000";
 
 type Brief = {
   title?: string;
@@ -35,7 +36,10 @@ export async function createProject(body: ProjectCreate) {
   return (await res.json()) as { id: number };
 }
 
-export async function generateForProject(projectId: number, body: GenerateRequest) {
+export async function generateForProject(
+  projectId: number,
+  body: GenerateRequest,
+) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -51,7 +55,10 @@ export async function getLatestVariant(projectId: number) {
   return await res.json(); // { id, status, tone, persona, script_json, storyboard_json }
 }
 
-export async function generateStatic(projectId: number, opts?: { cta?: string; width?: number; height?: number }) {
+export async function generateStatic(
+  projectId: number,
+  opts?: { cta?: string; width?: number; height?: number },
+) {
   const body = {
     project_id: projectId,
     cta: opts?.cta ?? "Try it today →",
@@ -64,14 +71,17 @@ export async function generateStatic(projectId: number, opts?: { cta?: string; w
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`generateStatic failed: ${res.status}`);
-  return (await res.json()) as { ok: boolean; data_url?: string; reason?: string };
+  return (await res.json()) as {
+    ok: boolean;
+    data_url?: string;
+    reason?: string;
+  };
 }
 
 export async function getPostText(projectId: number) {
-  const res = await fetch(
-    `${API_BASE}/post_text/projects/${projectId}`,
-    { method: "GET" }
-  );
+  const res = await fetch(`${API_BASE}/post_text/projects/${projectId}`, {
+    method: "GET",
+  });
   if (!res.ok) throw new Error(`getPostText failed: ${res.status}`);
   return (await res.json()) as { caption: string; hashtags: string[] };
 }
@@ -79,7 +89,7 @@ export async function getPostText(projectId: number) {
 export async function assembleVariant(variantId: number) {
   const res = await fetch(`${API_BASE}/variants/${variantId}/assemble`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
   });
   if (!res.ok) throw new Error(`assembleVariant failed: ${res.status}`);
   return (await res.json()) as { ok: boolean; mp4_url?: string };

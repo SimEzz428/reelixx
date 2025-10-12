@@ -11,12 +11,14 @@ UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
+
 async def fetch_html(url: str) -> str:
     """Fetch HTML with redirects and modest timeout."""
     async with httpx.AsyncClient(headers={"User-Agent": UA}, timeout=15) as client:
         r = await client.get(url, follow_redirects=True)
         r.raise_for_status()
         return r.text
+
 
 def _jsonld_product(soup: BeautifulSoup) -> Optional[Dict[str, Any]]:
     """Try schema.org Product JSON-LD first (best quality fields)."""
@@ -51,7 +53,9 @@ def _jsonld_product(soup: BeautifulSoup) -> Optional[Dict[str, Any]]:
                     offers = offers[0]
                 price = None
                 if isinstance(offers, dict):
-                    price = offers.get("price") or offers.get("priceSpecification", {}).get("price")
+                    price = offers.get("price") or offers.get(
+                        "priceSpecification", {}
+                    ).get("price")
 
                 images = d.get("image")
                 if isinstance(images, str):
@@ -66,10 +70,14 @@ def _jsonld_product(soup: BeautifulSoup) -> Optional[Dict[str, Any]]:
                 }
     return None
 
+
 def _opengraph(soup: BeautifulSoup) -> Dict[str, Any]:
     """Fallback to Open Graph / Twitter Card metadata."""
+
     def meta(prop: str) -> Optional[str]:
-        tag = soup.find("meta", property=prop) or soup.find("meta", attrs={"name": prop})
+        tag = soup.find("meta", property=prop) or soup.find(
+            "meta", attrs={"name": prop}
+        )
         return tag.get("content") if tag and tag.has_attr("content") else None
 
     title = meta("og:title") or meta("twitter:title")
@@ -77,7 +85,9 @@ def _opengraph(soup: BeautifulSoup) -> Dict[str, Any]:
     image = meta("og:image") or meta("twitter:image")
     return {"title": title, "description": desc, "images": [image] if image else None}
 
+
 PRICE_RE = re.compile(r"(\$\s?\d[\d,]*(?:\.\d{2})?|\d[\d,]*\s?(USD|usd|\$))")
+
 
 def _fallback(soup: BeautifulSoup) -> Dict[str, Any]:
     """Last resort: guess from visible text/meta."""
@@ -88,10 +98,13 @@ def _fallback(soup: BeautifulSoup) -> Dict[str, Any]:
     m = PRICE_RE.search(body_text)
     price = m.group(0) if m else None
     return {
-        "title": (h1.get_text(strip=True) if h1 else (h2.get_text(strip=True) if h2 else None)),
+        "title": (
+            h1.get_text(strip=True) if h1 else (h2.get_text(strip=True) if h2 else None)
+        ),
         "description": meta_desc.get("content") if meta_desc else None,
         "price": price,
     }
+
 
 async def scrape_brief(url: str) -> Dict[str, Any]:
     """Normalize a product brief from a public product URL."""
