@@ -1,9 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import { createProject, generateForProject, getLatestVariant, generateStatic, getPostText, assembleVariant } from "@/lib/api";
+import {
+  createProject,
+  generateForProject,
+  getLatestVariant,
+  generateStatic,
+  getPostText,
+  assembleVariant,
+} from "@/lib/api";
 
-const BACKEND_URL = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000").replace(/\/$/, "");
+/* eslint-disable @next/next/no-img-element */
+
+type Variant = {
+  id: number;
+  status?: string;
+  tone?: string;
+  persona?: string;
+  script_json?: unknown;
+  storyboard_json?: unknown;
+};
+
+
+function errMsg(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try { return JSON.stringify(err); } catch { return String(err); }
+}
+
+const RAW_API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+const BACKEND_URL = (
+  /^https?:\/\//.test(RAW_API) ? RAW_API : `https://${RAW_API}`
+).replace(/\/$/, "");
 function toAbsolute(url: string | null): string | null {
   if (!url) return url;
   if (/^https?:\/\//.test(url)) return url;
@@ -13,7 +40,7 @@ function toAbsolute(url: string | null): string | null {
 export default function Home() {
   const [title, setTitle] = useState("Demo Product");
   const [description, setDescription] = useState(
-    "Insulated bottle that keeps drinks cold for 24h."
+    "Insulated bottle that keeps drinks cold for 24h.",
   );
   const [price, setPrice] = useState("29.99");
   const [brandName, setBrandName] = useState("Hydra");
@@ -22,27 +49,51 @@ export default function Home() {
 
   const [projectId, setProjectId] = useState<number | null>(null);
   const [status, setStatus] = useState<string>("");
-  const [variant, setVariant] = useState<any>(null);
+  const [variant, setVariant] = useState<Variant | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [endcardDataUrl, setEndcardDataUrl] = useState<string | null>(null);
-  const [postText, setPostText] = useState<{ caption: string; hashtags: string[] } | null>(null);
+  const [postText, setPostText] = useState<{
+    caption: string;
+    hashtags: string[];
+  } | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const fileName = videoUrl ? (videoUrl.split("/").pop() || null) : null;
-  const downloadHref = fileName ? `${BACKEND_URL}/download/${fileName}` : null;
+  const [downloadHref, setDownloadHref] = useState<string | null>(null);
   async function handleAssemble() {
     if (!variant?.id) return;
     setBusy(true);
     setError(null);
     setStatus("Assembling MP4…");
     try {
-      const data = await assembleVariant(variant.id);
-      let url = (data as any)?.mp4_url || (data as any)?.url || null;
+      const data: { mp4_url?: string; url?: string; download?: string; filename?: string } =
+        await assembleVariant(variant.id);
+
+      let url = data?.mp4_url || data?.url || null;
       url = toAbsolute(url);
       setVideoUrl(url);
+
+      // Prefer explicit download URL from backend; fall back to parsing filename from `url`
+      let dl: string | null = null;
+      if (data?.download) {
+        dl = toAbsolute(data.download);
+      } else if (url) {
+        try {
+          const u = new URL(url);
+          const segs = u.pathname.split("/").filter(Boolean);
+          const name = segs[segs.length - 1] || "";
+          if (name) {
+            // IMPORTANT: use the dedicated /download route (not under /exports)
+            dl = `${BACKEND_URL}/download/${encodeURIComponent(name)}`;
+          }
+        } catch {
+          dl = null;
+        }
+      }
+      setDownloadHref(dl);
+
       setStatus("Video ready ✅");
-    } catch (e: any) {
-      setError(e.message ?? String(e));
+    } catch (e) {
+      setError(errMsg(e));
       setStatus("Error assembling video");
     } finally {
       setBusy(false);
@@ -67,8 +118,8 @@ export default function Home() {
       });
       setProjectId(res.id);
       setStatus(`Project created: ${res.id}`);
-    } catch (e: any) {
-      setError(e.message ?? String(e));
+    } catch (e) {
+      setError(errMsg(e));
       setStatus("Error creating project");
     } finally {
       setBusy(false);
@@ -90,30 +141,32 @@ export default function Home() {
       const v = await getLatestVariant(projectId);
       setVariant(v);
       setStatus("Ready ✅");
-    } catch (e: any) {
-      setError(e.message ?? String(e));
+    } catch (e) {
+      setError(errMsg(e));
       setStatus("Error during generation");
     } finally {
       setBusy(false);
     }
   }
   async function handleGenerateStatic() {
-  if (!projectId) return;
-  setBusy(true);
-  setError(null);
-  setStatus("Generating static end-card…");
-  try {
-    const { ok, data_url, reason } = await generateStatic(projectId, { cta: "Shop now →" });
-    if (!ok || !data_url) throw new Error(reason || "Unknown error");
-    setEndcardDataUrl(data_url);
-    setStatus("End-card ready ✅");
-  } catch (e: any) {
-    setError(e.message ?? String(e));
-    setStatus("Error generating static");
-  } finally {
-    setBusy(false);
+    if (!projectId) return;
+    setBusy(true);
+    setError(null);
+    setStatus("Generating static end-card…");
+    try {
+      const { ok, data_url, reason } = await generateStatic(projectId, {
+        cta: "Shop now →",
+      });
+      if (!ok || !data_url) throw new Error(reason || "Unknown error");
+      setEndcardDataUrl(data_url);
+      setStatus("End-card ready ✅");
+    } catch (e) {
+      setError(errMsg(e));
+      setStatus("Error generating static");
+    } finally {
+      setBusy(false);
+    }
   }
-}
   async function handleGetPostText() {
     if (!projectId) return;
     setBusy(true);
@@ -123,8 +176,8 @@ export default function Home() {
       const r = await getPostText(projectId);
       setPostText(r);
       setStatus("Post text ready ✅");
-    } catch (e: any) {
-      setError(e.message ?? String(e));
+    } catch (e) {
+      setError(errMsg(e));
       setStatus("Error generating post text");
     } finally {
       setBusy(false);
@@ -137,22 +190,25 @@ export default function Home() {
     setError(null);
     setStatus("Preparing export ZIP…");
     try {
-      const res = await fetch(`${BACKEND_URL}/variants/${variant.id}/export_zip`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await fetch(
+        `${BACKEND_URL}/variants/${variant.id}/export_zip`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
       if (!res.ok) {
         const t = await res.text();
         throw new Error(`export_zip failed: ${res.status} — ${t}`);
       }
       const data = await res.json();
-      const dl = (data && data.download) ? toAbsolute(data.download) : null;
+      const dl = data && data.download ? toAbsolute(data.download) : null;
       if (!dl) throw new Error("No download URL returned");
       // trigger download
       window.location.href = dl;
       setStatus("Export ZIP ready ✅");
-    } catch (e: any) {
-      setError(e.message ?? String(e));
+    } catch (e) {
+      setError(errMsg(e));
       setStatus("Error exporting ZIP");
     } finally {
       setBusy(false);
@@ -163,7 +219,9 @@ export default function Home() {
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
       <div className="mx-auto max-w-3xl p-6 space-y-6">
         <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Reelixx — MVP</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Reelixx — MVP
+          </h1>
           <span className="text-xs text-neutral-400">
             Backend: {BACKEND_URL}
           </span>
@@ -243,9 +301,9 @@ export default function Home() {
                 </span>
               )}
               <button
-              onClick={handleGenerateStatic}
-              disabled={busy || !projectId}
-              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium disabled:opacity-50"
+                onClick={handleGenerateStatic}
+                disabled={busy || !projectId}
+                className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium disabled:opacity-50"
               >
                 3) Generate Static End-Card
               </button>
@@ -258,7 +316,9 @@ export default function Home() {
               </button>
             </div>
 
-            {status && <p className="text-sm text-neutral-300">Status: {status}</p>}
+            {status && (
+              <p className="text-sm text-neutral-300">Status: {status}</p>
+            )}
             {error && <p className="text-sm text-red-400">Error: {error}</p>}
           </div>
         </section>
@@ -268,7 +328,8 @@ export default function Home() {
           <h2 className="text-lg font-medium mb-3">Static End-Card Preview</h2>
           {!endcardDataUrl ? (
             <p className="text-neutral-400 text-sm">
-              No static end-card generated yet. Click “Generate Static End-Card”.
+              No static end-card generated yet. Click “Generate Static
+              End-Card”.
             </p>
           ) : (
             <div className="flex flex-col items-center space-y-2">
@@ -299,12 +360,13 @@ export default function Home() {
               </div>
               <div>
                 <span className="font-medium">Hashtags:</span>{" "}
-                <span className="text-neutral-300">{postText.hashtags.join(" ")}</span>
+                <span className="text-neutral-300">
+                  {postText.hashtags.join(" ")}
+                </span>
               </div>
             </div>
           </section>
         )}
-
 
         {videoUrl && (
           <section className="rounded-xl border border-neutral-800 p-4 mt-6">
