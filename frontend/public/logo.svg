@@ -1,0 +1,14 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="24" fill="#111827"/>
+  <g filter="url(#a)">
+    <path d="M32 40h64v12H32z" fill="#6366F1"/>
+    <path d="M32 60h64v28H32z" fill="#1F2937"/>
+    <circle cx="44" cy="74" r="8" fill="#6366F1"/>
+    <rect x="58" y="68" width="34" height="12" rx="6" fill="#374151"/>
+  </g>
+  <defs>
+    <filter id="a" x="22" y="32" width="84" height="64" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".2"/>
+    </filter>
+  </defs>
+</svg>

@@ -1,8 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict, List
 
-# Maps script beats -> suggested visuals, overlays, transitions, and sfx.
-# No external APIs yet; deterministic and safe defaults for 9:16 vertical.
 
 DEFAULT_CANVAS = {"w": 1080, "h": 1920, "fps": 30}
 
@@ -12,7 +10,7 @@ def _overlay_text(text: str, style: str = "default") -> Dict[str, Any]:
 
 
 def _endcard_overlay(brief: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # brand may be a dict (with color/logo) or a plain string (brand name only)
+
     brand = brief.get("brand") or {}
     color = "#111111"
     logo = None
@@ -20,7 +18,7 @@ def _endcard_overlay(brief: Dict[str, Any]) -> List[Dict[str, Any]]:
     if isinstance(brand, dict):
         color = brand.get("color") or color
         logo = brand.get("logo_url")
-    # if it's a string we just keep defaults
+   
 
     return [
         {"type": "panel", "color": color, "alpha": 0.9},
@@ -31,7 +29,7 @@ def _endcard_overlay(brief: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _beat_visual(beat_id: str, brief: Dict[str, Any]) -> Dict[str, Any]:
     title = brief.get("title") or "product"
     images = brief.get("images") or []
-    # Prefer product image if available
+   
     if images:
         primary = images[0]
     else:
@@ -75,6 +73,7 @@ def compose_storyboard(script: Dict[str, Any], brief: Dict[str, Any]) -> Dict[st
     """
     beats = script.get("beats", [])
     scenes: List[Dict[str, Any]] = []
+
     for b in beats:
         beat_id = b.get("id")
         scene = {
@@ -87,7 +86,7 @@ def compose_storyboard(script: Dict[str, Any], brief: Dict[str, Any]) -> Dict[st
             "sfx": _sfx_for(beat_id),
         }
 
-        # Overlay rules
+   
         vo_text = (b.get("text") or b.get("vo") or "")[:48]
         if beat_id in ("hook", "value", "proof"):
             scene["overlay"].append(_overlay_text(vo_text, style="caption"))
@@ -96,6 +95,36 @@ def compose_storyboard(script: Dict[str, Any], brief: Dict[str, Any]) -> Dict[st
             scene["overlay"].extend(_endcard_overlay(brief))
 
         scenes.append(scene)
+
+ 
+    brand = brief.get("brand")
+    if isinstance(brand, dict):
+        brand_name = (brand.get("name") or brief.get("title") or "Your Brand").strip()
+    else:
+       
+        brand_name = (brand or brief.get("title") or "Your Brand").strip()
+
+
+    last_end = 0.0
+    for sc in scenes:
+        try:
+            last_end = max(last_end, float(sc.get("end", 0.0)))
+        except Exception:
+            pass
+
+    endcard_duration = 2.5
+    endcard_scene = {
+        "id": "endcard",
+        "start": last_end,
+        "end": last_end + endcard_duration,
+        "text": f"{brand_name}\nTry it today →",
+        "visual": {"type": "endcard"},
+        "overlay": [{"type": "text", "text": "Try it today →", "style": "cta"}],
+        "sfx": "click",
+        "transition_in": "whip",
+    }
+    scenes.append(endcard_scene)
+   
 
     return {
         "version": "1.0",

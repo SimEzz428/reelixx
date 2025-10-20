@@ -1,14 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+# backend/app/routers/assemble.py
+from __future__ import annotations
 from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from ..db import get_db
 from .. import models
-from ..models import Variant
-from ..generators.video_stub import render_storyboard_to_mp4
+from ..generators.video_ai import generate_ai_ad
 
 router = APIRouter()
-
 
 def _brand_color(project: models.Project) -> str | None:
     brand = project.brand_json or {}
@@ -18,33 +20,70 @@ def _brand_color(project: models.Project) -> str | None:
             return c
     return None
 
+def _script_caption(v: models.Variant) -> str:
 
-# IMPORTANT: no "/variants" here – the router is already included with prefix="/variants"
-@router.post("/{variant_id}/assemble")
-def assemble_variant(variant_id: int, request: Request, db: Session = Depends(get_db)):
+    s = v.script_json or {}
+    if isinstance(s, dict) and isinstance(s.get("beats"), list):
+        try:
+            return " ".join(
+                (b.get("vo") or b.get("text") or "").strip()
+                for b in s["beats"]
+            ).strip() or " "
+        except Exception:
+            pass
+    return " "
+
+@router.post("/variants/{variant_id}/assemble")
+def assemble_variant(variant_id: int, db: Session = Depends(get_db)):
     v = db.get(models.Variant, variant_id)
     if not v:
         raise HTTPException(status_code=404, detail="Variant not found")
+
     if not v.storyboard_json:
         raise HTTPException(status_code=400, detail="Variant has no storyboard_json")
+
+    sb = v.storyboard_json
+    if not isinstance(sb, dict) or not sb.get("scenes"):
+        raise HTTPException(status_code=400, detail="Storyboard must have scenes")
 
     project = db.get(models.Project, v.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    color = _brand_color(project)
+    color = _brand_color(project) or "#111111"
+    caption = _script_caption(v)
+    outfile_stem = f"variant_{variant_id}"
 
-    # Render an MP4 from the storyboard (text-only preview)
-    result = render_storyboard_to_mp4(
-        v.storyboard_json,
-        brand_color_hex=color,
-        outfile_basename=f"variant_{variant_id}.mp4",
-    )
+    try:
+        result: dict[str, Any] = generate_ai_ad(
+            storyboard=sb,
+            caption=caption,
+            brand_color=color,
+            outfile_basename=outfile_stem,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI assemble failed: {e}")
 
-    # Use the URL returned by the renderer (already under /exports)
-    mp4_url = result.get("url") or f"/exports/{Path(result['path']).name}"
+    filename = (result or {}).get("filename")
+    url = (result or {}).get("url")
 
-    # also provide absolute URL for convenience (frontend can use either)
-    abs_url = str(request.base_url).rstrip("/") + mp4_url
+    if not (filename or url):
+        raise HTTPException(status_code=500, detail="AI generator returned no filename/url")
 
-    return {"ok": True, "mp4_url": mp4_url, "abs_url": abs_url}
+    if not url and filename:
+        url = f"/exports/{filename}"
+
+
+    if filename:
+        download = f"/exports/download/{filename}"
+    else:
+        name = Path(url).name
+        download = f"/exports/download/{name}" if name else url
+
+    return {
+        "ok": True,
+        "ai": True,
+        "mp4_url": url,
+        "download": download,
+        "filename": filename,
+    }
