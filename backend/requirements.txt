@@ -1,20 +1,10 @@
-fastapi==0.119.0
-uvicorn[standard]==0.38.0
-SQLAlchemy==2.0.36
-pydantic==2.12.3
-python-dotenv==1.0.1
-httpx==0.28.1
-
-# media/render stack (works locally, no AI spend)
-moviepy==1.0.3
-Pillow==12.0.0
-numpy==2.3.4
-pydub==0.25.1
-soundfile==0.13.1
-librosa==0.11.0
-
-# scraping & parsing
-beautifulsoup4==4.12.3
-
-# optional OpenAI client (kept for completeness; won't be used in FREE mode)
-openai==2.5.0
+fastapi
+uvicorn
+python-dotenv
+sqlalchemy
+moviepy
+pillow
+numpy
+pydub
+openai
+requests
