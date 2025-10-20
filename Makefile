@@ -23,3 +23,9 @@ format:
 	@echo "✨ Formatting frontend..."
 	cd frontend && npx prettier --write .
 
+
+demo:
+\tcd frontend && npm run dev:all
+
+ready:
+\tcd frontend && npm run dev:ready

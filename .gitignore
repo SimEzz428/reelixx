@@ -1,26 +1,31 @@
-here
-# macOS
+# --- General ---
 .DS_Store
+.vscode/
+.idea/
 
-# Python
+# --- Environment secrets ---
+.env
+frontend/.env
+backend/.env
+
+# --- Node/Next ---
+node_modules/
+.next/
+out/
+dist/
+
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-*.db
+.pytest_cache/
 .venv/
-.env
-.env.*
-# Allow example envs
-!frontend/.env.local.example
-!backend/.env.example
-# FastAPI/exports
-backend/app/exports/*.mp4
-backend/app/exports/*.zip
-backend/app/exports/*.png
+.envrc
 
-# Node/Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/.env.local
-!frontend/.env.local.example
+# --- App artifacts ---
+backend/app/exports/
+# keep assets; just ignore rendered outputs above
+
+# --- Logs ---
+*.log

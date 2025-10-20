@@ -49,13 +49,7 @@ def generate_post_text(
     tone: str | None,
     persona: str | None,
 ) -> Dict[str, Any]:
-    """
-    Returns:
-    {
-      "caption": "Short punchy line...",
-      "hashtags": ["#tag1", "#tag2", ...]
-    }
-    """
+
     brief = brief or {}
     script = script or {}
     title = (brief.get("title") or "").strip()
@@ -65,7 +59,6 @@ def generate_post_text(
     if beats:
         hook = str(beats[0].get("vo") or beats[0].get("text") or "").strip()
 
-    # Caption: prefer hook, keep it short, add CTA signal.
     base = hook or f"Meet {title}" if title else "Stop scrolling"
     base = re.sub(r"\s+", " ", base).strip()
     if price:

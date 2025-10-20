@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends
-from fastapi import HTTPException
+# app/routers/projects.py
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import json
-from ..generators.script import generate_script
-from ..generators.storyboard import compose_storyboard  # NEW
+from typing import Any, Dict, Optional
 
+from ..generators.storyboard import compose_storyboard  
 from .. import models, schemas
 from ..db import get_db
 from ..models import Variant, Job, JobStatus
@@ -12,9 +12,32 @@ from ..models import Variant, Job, JobStatus
 router = APIRouter()
 
 
+def generate_script(brief: Dict[str, Any], *, tone: Optional[str] = None, persona: Optional[str] = None) -> Dict[str, Any]:
+    title = (
+        brief.get("title")
+        or brief.get("product_title")
+        or (brief.get("product") or {}).get("title")
+        or "Your product"
+    )
+    desc = (
+        brief.get("description")
+        or (brief.get("product") or {}).get("description")
+        or ""
+    )
+
+    beats = [
+        {"time": 0.0,  "vo": f"Meet {title}."},
+        {"time": 2.5,  "vo": (desc[:140] or "Built for daily use.")},
+        {"time": 5.0,  "vo": "See how it works."},
+        {"time": 8.0,  "vo": "Tap to get yours now."},
+    ]
+    return {"beats": beats, "meta": {"tone": tone, "persona": persona}}
+
+
+
 @router.post("/", response_model=schemas.ProjectOut)
 def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)):
-    """Create a new project entry in the database."""
+    
     project = models.Project(
         title=payload.title,
         product_url=str(payload.product_url) if payload.product_url else None,
@@ -33,39 +56,41 @@ def generate_variant(
     payload: schemas.GenerateRequest,
     db: Session = Depends(get_db),
 ):
-    """Create a draft variant and a job; generate a script (heuristic v0)."""
+   
     project = db.get(models.Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Create a draft variant
+
     tone = payload.tones[0] if payload.tones else None
     variant = Variant(
-        project_id=project.id, tone=tone, persona=payload.persona, status="draft"
+        project_id=project.id,
+        tone=tone,
+        persona=payload.persona,
+        status="draft",
     )
     db.add(variant)
 
-    # Create a job and mark running
+
     job = Job(project_id=project.id, kind="generate-variant", status=JobStatus.running)
     db.add(job)
     db.commit()
     db.refresh(job)
 
-    # === NEW: generate script JSON (no external API yet) ===
+    
     brief = project.brief_json or {}
     script_json = generate_script(brief, tone=tone, persona=payload.persona)
     storyboard_json = compose_storyboard(script_json, brief)
-    # persist artifacts on the variant
+
+   
     variant.script_json = script_json
     variant.storyboard_json = storyboard_json
     variant.status = "ready"
     db.add(variant)
 
-    # Finish the job with the script embedded in logs
+    
     job.status = JobStatus.completed
-    job.logs = json.dumps(
-        {"script": script_json, "storyboard": storyboard_json}, indent=2
-    )
+    job.logs = json.dumps({"script": script_json, "storyboard": storyboard_json}, indent=2)
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -75,12 +100,11 @@ def generate_variant(
 
 @router.get("/{project_id}/variants/latest", response_model=schemas.VariantOut)
 def get_latest_variant(project_id: int, db: Session = Depends(get_db)):
-    # Ensure project exists
+
     project = db.get(models.Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Most recent variant for this project
     v = (
         db.query(models.Variant)
         .filter(models.Variant.project_id == project_id)

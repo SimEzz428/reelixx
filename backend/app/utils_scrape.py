@@ -1,125 +1,153 @@
-import json
-import re
-from typing import Any, Dict, List, Optional
+# backend/app/utils_scrape.py
+from __future__ import annotations
 
-import httpx
+import re
+from typing import Dict, List
+from urllib.parse import urljoin
+
+import requests
 from bs4 import BeautifulSoup
 
-# Conservative desktop UA to avoid some anti-bot blocks
-UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0 Safari/537.36"
+    )
+}
 
 
-async def fetch_html(url: str) -> str:
-    """Fetch HTML with redirects and modest timeout."""
-    async with httpx.AsyncClient(headers={"User-Agent": UA}, timeout=15) as client:
-        r = await client.get(url, follow_redirects=True)
-        r.raise_for_status()
-        return r.text
+def _text(el) -> str:
+   
+    return re.sub(r"\s+", " ", (el.get_text(" ", strip=True) if el else "")).strip()
 
 
-def _jsonld_product(soup: BeautifulSoup) -> Optional[Dict[str, Any]]:
-    """Try schema.org Product JSON-LD first (best quality fields)."""
-    for tag in soup.find_all("script", {"type": "application/ld+json"}):
-        try:
-            data = json.loads(tag.string or "{}")
-        except json.JSONDecodeError:
+def _meta(soup: BeautifulSoup, *names: str) -> str:
+    
+    for n in names:
+        tag = soup.find("meta", property=n) or soup.find("meta", attrs={"name": n})
+        if tag:
+            val = (tag.get("content") or "").strip()
+            if val:
+                return val
+    return ""
+
+
+def _pick_images(soup: BeautifulSoup, base_url: str) -> List[str]:
+   
+    urls: List[str] = []
+
+   
+    for tag in soup.find_all("meta", property="og:image"):
+        u = (tag.get("content") or "").strip()
+        if u:
+            urls.append(u)
+
+    for img in soup.find_all("img"):
+        u = (img.get("src") or img.get("data-src") or "").strip()
+        if not u:
             continue
+        urls.append(urljoin(base_url, u))
 
-        items: List[Dict[str, Any]]
-        if isinstance(data, dict):
-            items = [data]
-        elif isinstance(data, list):
-            items = [d for d in data if isinstance(d, dict)]
-        else:
-            items = []
+   
+    def good(u: str) -> bool:
+        return u.startswith("http://") or u.startswith("https://")
 
-        for d in items:
-            types = d.get("@type")
-            types_list = [types] if isinstance(types, str) else (types or [])
-            if any(isinstance(t, str) and t.lower() == "product" for t in types_list):
-                brand_name = None
-                brand = d.get("brand")
-                if isinstance(brand, dict):
-                    brand_name = brand.get("name")
-                elif isinstance(brand, str):
-                    brand_name = brand
-
-                # Offers/price variations
-                offers = d.get("offers") or {}
-                if isinstance(offers, list) and offers:
-                    offers = offers[0]
-                price = None
-                if isinstance(offers, dict):
-                    price = offers.get("price") or offers.get(
-                        "priceSpecification", {}
-                    ).get("price")
-
-                images = d.get("image")
-                if isinstance(images, str):
-                    images = [images]
-
-                return {
-                    "title": d.get("name"),
-                    "description": d.get("description"),
-                    "brand": brand_name if isinstance(brand_name, str) else None,
-                    "price": str(price) if price is not None else None,
-                    "images": images,
-                }
-    return None
+    dedup: List[str] = []
+    seen = set()
+    for u in sorted([u for u in urls if good(u)], key=len, reverse=True):
+        if u not in seen:
+            seen.add(u)
+            dedup.append(u)
+    return dedup[:12]
 
 
-def _opengraph(soup: BeautifulSoup) -> Dict[str, Any]:
-    """Fallback to Open Graph / Twitter Card metadata."""
+def _pick_bullets(soup: BeautifulSoup) -> List[str]:
+    
+    bullets: List[str] = []
+    candidates = []
+    for sel in [
+        ".features ul",
+        ".feature-list ul",
+        ".specs ul",
+        ".specifications ul",
+        "ul[role='list']",
+        "ul",
+    ]:
+        candidates.extend(soup.select(sel))
 
-    def meta(prop: str) -> Optional[str]:
-        tag = soup.find("meta", property=prop) or soup.find(
-            "meta", attrs={"name": prop}
-        )
-        return tag.get("content") if tag and tag.has_attr("content") else None
-
-    title = meta("og:title") or meta("twitter:title")
-    desc = meta("og:description") or meta("twitter:description") or meta("description")
-    image = meta("og:image") or meta("twitter:image")
-    return {"title": title, "description": desc, "images": [image] if image else None}
+    for ul in candidates:
+        for li in ul.find_all("li"):
+            t = _text(li)
+            if len(t) >= 6 and not t.lower().startswith(("add to cart", "learn more")):
+                bullets.append(t)
+        if len(bullets) >= 12:
+            break
 
 
-PRICE_RE = re.compile(r"(\$\s?\d[\d,]*(?:\.\d{2})?|\d[\d,]*\s?(USD|usd|\$))")
+    out, seen = [], set()
+    for b in bullets:
+        b = b.strip(" •-—").strip()
+        if b and b not in seen:
+            seen.add(b)
+            out.append(b)
+    return out[:8]
 
+def scrape_url(url: str) -> Dict:
 
-def _fallback(soup: BeautifulSoup) -> Dict[str, Any]:
-    """Last resort: guess from visible text/meta."""
-    h1 = soup.find("h1")
-    h2 = soup.find("h2")
-    meta_desc = soup.find("meta", attrs={"name": "description"})
-    body_text = soup.get_text(" ", strip=True)
-    m = PRICE_RE.search(body_text)
-    price = m.group(0) if m else None
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("scrape_url: missing URL")
+
+    resp = requests.get(url, headers=HEADERS, timeout=15)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    title = (
+        _meta(soup, "og:title", "twitter:title") or
+        _text(soup.title) or
+        ""
+    )
+
+    description = (
+        _meta(soup, "og:description", "description", "twitter:description") or
+        ""
+    )
+
+    images = _pick_images(soup, url)
+    bullets = _pick_bullets(soup)
+
+    if not title:
+        title = "Your Product"
+    if not description:
+        p = soup.find("p")
+        description = _text(p)[:240] if p else "Great product that customers love."
+
     return {
-        "title": (
-            h1.get_text(strip=True) if h1 else (h2.get_text(strip=True) if h2 else None)
-        ),
-        "description": meta_desc.get("content") if meta_desc else None,
-        "price": price,
+        "url": url,
+        "title": title.strip(),
+        "description": description.strip(),
+        "images": images,
+        "bullets": bullets,
     }
 
 
-async def scrape_brief(url: str) -> Dict[str, Any]:
-    """Normalize a product brief from a public product URL."""
-    html = await fetch_html(url)
-    soup = BeautifulSoup(html, "html.parser")
+def scrape_brief(url: str) -> Dict:
 
-    # Preference: JSON-LD Product > Open Graph > fallback hints
-    brief = _jsonld_product(soup) or _opengraph(soup)
-    fb = _fallback(soup)
+    data = scrape_url(url)
 
-    # Merge with precedence for structured fields
-    out: Dict[str, Any] = {k: v for k, v in (brief or {}).items() if v}
-    for k, v in fb.items():
-        out.setdefault(k, v)
+    
+    brief = {
+        "ok": True,
+        "title": data["title"],
+        "description": data["description"],
+        "bullets": data["bullets"],
+        "voice": "alloy",
+        "music_mood": "upbeat",
+        "tone": "energetic",
+    }
+    return brief
 
-    # Ensure images key exists (even if None)
-    out.setdefault("images", (brief or {}).get("images"))
-    return out
+
+__all__ = ["scrape_url", "scrape_brief"]

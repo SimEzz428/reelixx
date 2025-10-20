@@ -1,96 +1,70 @@
-// frontend/src/lib/api.ts
+const RAW_API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+export const BACKEND_URL = (/^https?:\/\//.test(RAW_API) ? RAW_API : `https://${RAW_API}`).replace(/\/$/, "");
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ||
-  "http://localhost:8000";
-
-type Brief = {
-  title?: string;
-  description?: string;
-  price?: string;
-  brand?: string | Record<string, unknown>;
-  images?: string[];
-};
-
-export type ProjectCreate = {
-  title?: string;
-  product_url?: string;
-  brief?: Brief;
-  brand?: Record<string, unknown>;
-};
-
-export type GenerateRequest = {
-  n_variants?: number;
-  tones?: string[];
-  persona?: string;
-  voice_id?: string;
-};
-
-export async function createProject(body: ProjectCreate) {
-  const res = await fetch(`${API_BASE}/projects/`, {
+export async function createProject(payload: any) {
+  const r = await fetch(`${BACKEND_URL}/projects/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`createProject failed: ${res.status}`);
-  return (await res.json()) as { id: number };
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
-export async function generateForProject(
-  projectId: number,
-  body: GenerateRequest,
-) {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/generate`, {
+export async function generateForProject(projectId: number, payload: any) {
+  const r = await fetch(`${BACKEND_URL}/projects/${projectId}/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`generateForProject failed: ${res.status}`);
-  return await res.json();
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
 export async function getLatestVariant(projectId: number) {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/variants/latest`);
-  if (!res.ok) throw new Error(`getLatestVariant failed: ${res.status}`);
-  return await res.json(); // { id, status, tone, persona, script_json, storyboard_json }
+  const r = await fetch(`${BACKEND_URL}/projects/${projectId}/variants/latest`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
-export async function generateStatic(
-  projectId: number,
-  opts?: { cta?: string; width?: number; height?: number },
-) {
-  const body = {
-    project_id: projectId,
-    cta: opts?.cta ?? "Try it today →",
-    width: opts?.width ?? 1080,
-    height: opts?.height ?? 1920,
-  };
-  const res = await fetch(`${API_BASE}/generate_static/`, {
+export async function generateStatic(projectId: number, payload: any) {
+  const r = await fetch(`${BACKEND_URL}/generate_static/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ project_id: projectId, ...payload }),
   });
-  if (!res.ok) throw new Error(`generateStatic failed: ${res.status}`);
-  return (await res.json()) as {
-    ok: boolean;
-    data_url?: string;
-    reason?: string;
-  };
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
 export async function getPostText(projectId: number) {
-  const res = await fetch(`${API_BASE}/post_text/projects/${projectId}`, {
-    method: "GET",
-  });
-  if (!res.ok) throw new Error(`getPostText failed: ${res.status}`);
-  return (await res.json()) as { caption: string; hashtags: string[] };
+  const r = await fetch(`${BACKEND_URL}/post_text/projects/${projectId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
 export async function assembleVariant(variantId: number) {
-  const res = await fetch(`${API_BASE}/variants/${variantId}/assemble`, {
+  const r = await fetch(`${BACKEND_URL}/variants/${variantId}/assemble`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error(`assembleVariant failed: ${res.status}`);
-  return (await res.json()) as { ok: boolean; mp4_url?: string };
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
+
+export function toAbsolute(u?: string | null) {
+  if (!u) return "";
+  if (/^https?:\/\//.test(u)) return u;
+  const path = u.startsWith("/") ? u : `/${u}`;
+  return `${BACKEND_URL}${path}`;
+}
+
+export async function pingHealth(): Promise<"up" | "down"> {
+  try {
+    const r = await fetch(`${BACKEND_URL}/health`, { cache: "no-store" });
+    return r.ok ? "up" : "down";
+  } catch {
+    return "down";
+  }
+}
+
