@@ -1,27 +1,53 @@
-# Reelixx — AI Short-Form Ad Generator (MVP)
+# 🎬 Reelixx — AI Short-Form Ad Generator
 
-Generate on-brand, high-converting short-form video ads (9:16) from a product brief — scripts, storyboard, static end-card, captions, and a stub video render (MP4).
+Reelixx automatically turns a **product webpage or description** into a **ready-to-share short-form video ad (9:16)** — complete with:
+- 🎙️ **AI Voiceovers (TTS)**
+- 🖼️ **Generated Scene Images**
+- 🎵 **Music Auto-Mixing**
+- 🧩 **Script & Storyboard Generation**
+- 📽️ **Final MP4 Export**
 
-## Stack
-- **Frontend:** Next.js (App Router), Tailwind
-- **Backend:** FastAPI, SQLAlchemy (SQLite for dev), MoviePy + ffmpeg
-- **Outputs:** MP4 preview, PNG end-card, ZIP (MP4 + JSONs)
+This project demonstrates a **modular AI-powered video creation pipeline** — built with real production-style code (FastAPI + MoviePy + OpenAI SDK).  
+It can also run in **zero-cost demo mode**, rendering videos **without** using any paid APIs.
 
 ---
 
-## Quickstart
+## 🧠 Core Features
+
+| Feature | Description |
+|----------|--------------|
+| 🧾 **AI Script + Storyboard** | Generates ad scripts and shot lists from text or product URLs |
+| 🖼️ **Image Generation** | Uses OpenAI image models (gpt-image-1) for cinematic ad frames |
+| 🎙️ **Voice Generation** | High-quality TTS with emotion-adaptive voices |
+| 🎵 **Music Ducking + Mix** | Automatic background music synced with narration |
+| 📽️ **Video Composition** | Combines visuals, voice, and music into a 9:16 vertical MP4 |
+| 💾 **Stub Renderer (Offline)** | Works without API calls — uses Pillow + MoviePy |
+| ⚡ **FastAPI Backend** | Modular endpoints for AI, export, and scrape automation |
+
+---
+
+## 🧩 Tech Stack
+
+**Backend:**
+- Python 3.11+
+- FastAPI + Uvicorn
+- MoviePy, Pillow, NumPy, pydub
+- OpenAI SDK (images, TTS)
+- SQLAlchemy (SQLite for dev)
+
+**Frontend (planned):**
+- Next.js (App Router)
+- Tailwind CSS
+- Axios API integration
+
+---
+
+## 🚀 Quickstart
 
 ### 0) Prereqs
 - macOS / Linux (Windows WSL works)
-- **Python 3.11+** with `venv`
-- **Node 18+ / 20+** and **npm**
-- **ffmpeg** installed (Homebrew: `brew install ffmpeg`)
-
-### 1) Backend (FastAPI)
-```bash
-cd backend
-# activate venv from project root
-source ../.venv/bin/activate
-
-# run API
-uvicorn app.main:app --reload --port 8000
+- Python 3.11+ with `venv`
+- Node 18+ or 20+
+- ffmpeg installed  
+  ```bash
+  brew install ffmpeg
