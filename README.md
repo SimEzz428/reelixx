@@ -35,19 +35,8 @@ It can also run in **zero-cost demo mode**, rendering videos **without** using a
 - OpenAI SDK (images, TTS)
 - SQLAlchemy (SQLite for dev)
 
-**Frontend (planned):**
+**Frontend:**
 - Next.js (App Router)
 - Tailwind CSS
 - Axios API integration
 
----
-
-## 🚀 Quickstart
-
-### 0) Prereqs
-- macOS / Linux (Windows WSL works)
-- Python 3.11+ with `venv`
-- Node 18+ or 20+
-- ffmpeg installed  
-  ```bash
-  brew install ffmpeg
