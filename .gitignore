@@ -29,3 +29,7 @@ backend/app/exports/
 
 # --- Logs ---
 *.log
+
+.env
+.env.*
+*.env
