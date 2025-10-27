@@ -13,6 +13,9 @@ from PIL import Image, ImageDraw, ImageFont
 from pydub import AudioSegment
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
+# Import storage manager
+from ..storage import storage
+
 # ---------- Paths ----------
 APP_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = APP_DIR / "assets"
@@ -237,7 +240,10 @@ def generate_ai_ad(
     final = concatenate_videoclips(clips, method="compose")
 
     ts = int(time.time())
-    out_path = EXPORT_DIR / f"ai_ad_{ts}.mp4"
+    filename = f"ai_ad_{ts}.mp4"
+    out_path = EXPORT_DIR / filename
+    
+    # Write video file locally first
     final.write_videofile(
         str(out_path),
         fps=30,
@@ -248,9 +254,16 @@ def generate_ai_ad(
     )
     final.close()
 
+    # Upload to storage (S3 or keep local)
+    file_url = storage.save_file_from_path(out_path, f"videos/{filename}")
+    
+    # Clean up local file if using S3
+    if storage.use_s3 and out_path.exists():
+        out_path.unlink()
+
     return {
         "ok": True,
         "path": str(out_path),
-        "url": f"/exports/{out_path.name}",
-        "filename": out_path.name,
+        "url": file_url,
+        "filename": filename,
     }

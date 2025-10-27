@@ -1,6 +1,7 @@
 # backend/app/main.py
 from __future__ import annotations
 from pathlib import Path
+import os
 from dotenv import load_dotenv
 
 
@@ -22,9 +23,14 @@ from .db import Base, engine
 app = FastAPI(title="Reelixx API", version="1.0.0", docs_url="/docs", redoc_url=None)
 
 
+# CORS configuration
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002").split(",")
+if os.getenv("ENVIRONMENT") == "development":
+    cors_origins.append("*")  # Allow all origins in development
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,8 +58,27 @@ def force_download(filename: str):
 
 
 @app.get("/health", tags=["meta"])
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health():
+    """Health check endpoint for load balancer"""
+    try:
+        # Test database connection
+        from .db import engine
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        
+        return {
+            "ok": True,
+            "db": True,
+            "environment": os.getenv("ENVIRONMENT", "development")
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "db": False,
+            "error": str(e),
+            "environment": os.getenv("ENVIRONMENT", "development")
+        }
 
 
 

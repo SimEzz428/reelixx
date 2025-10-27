@@ -2,9 +2,14 @@ fastapi
 uvicorn
 python-dotenv
 sqlalchemy
-moviepy
+psycopg2-binary
+moviepy==1.0.3
 pillow
 numpy
 pydub
 openai
 requests
+boto3
+gunicorn
+beautifulsoup4
+audioop-lts
