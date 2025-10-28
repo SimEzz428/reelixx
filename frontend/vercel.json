@@ -1,6 +1,6 @@
 {
-  "framework": "nextjs",
-  "env": {
-    "NEXT_PUBLIC_API_BASE": "@api_base_url"
-  }
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs"
 }
