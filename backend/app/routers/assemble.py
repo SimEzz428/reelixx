@@ -52,14 +52,12 @@ def assemble_variant(variant_id: int, db: Session = Depends(get_db)):
 
     color = _brand_color(project) or "#111111"
     caption = _script_caption(v)
-    outfile_stem = f"variant_{variant_id}"
 
     try:
         result: dict[str, Any] = generate_ai_ad(
             storyboard=sb,
             caption=caption,
             brand_color=color,
-            outfile_basename=outfile_stem,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI assemble failed: {e}")

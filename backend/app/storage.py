@@ -67,7 +67,10 @@ class StorageManager:
                 # Return local path as fallback
                 return f"/exports/{local_path.name}"
         else:
-            # Copy to exports directory for consistency
+            # If file is already in exports directory, just return the path
+            if self.local_storage_dir in local_path.parents:
+                return f"/exports/{local_path.name}"
+            # Otherwise, copy to exports directory
             dest_path = self.local_storage_dir / local_path.name
             import shutil
             shutil.copy2(local_path, dest_path)
