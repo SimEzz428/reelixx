@@ -1,269 +1,312 @@
 # backend/app/generators/video_ai.py
+"""Render a storyboard into an MP4.
+
+Two render modes:
+  - "ai":   OpenAI images (gpt-image-1) + OpenAI TTS voiceover. Costs API credits.
+  - "free": branded gradient slides with on-screen text and music only. No API calls.
+  - "auto": "ai" when an API key is configured and free mode is off, else "free".
+"""
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, Any, List, Tuple
-import io
-import os
-import time
 import base64
+import io
 import math
+import os
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
+from moviepy.editor import AudioFileClip, CompositeAudioClip, ImageClip, afx, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
-from pydub import AudioSegment
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
-# Import storage manager
-from ..storage import storage
+from ..ai_client import ai_available, get_client
+from ..storage import EXPORT_DIR, storage
 
-# ---------- Paths ----------
-APP_DIR = Path(__file__).resolve().parent
-ASSETS_DIR = APP_DIR / "assets"
-EXPORT_DIR = APP_DIR.parent / "exports"
-EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 
-# ---------- Env / Modes ----------
-API_KEY = os.getenv("OPENAI_API_KEY")
-FREE_MODE = os.getenv("REELIXX_FREE_MODE", "0") == "1" or not API_KEY
+FORMATS: Dict[str, Tuple[int, int]] = {
+    "reel": (1080, 1920),
+    "story": (1080, 1920),
+    "square": (1080, 1080),
+    "portrait": (1080, 1350),
+}
+MUSIC = {
+    "upbeat": ASSETS_DIR / "music_upbeat.mp3",
+    "chill": ASSETS_DIR / "music_chill.mp3",
+    "luxury": ASSETS_DIR / "music_luxury.mp3",
+}
+VOICES = {"alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"}
+MUSIC_VOLUME = 0.2  # ≈ -14 dB under voiceover
+MUSIC_VOLUME_SOLO = 0.4  # no voiceover (free mode)
 
-# Lazy OpenAI client (only if available & not in free mode)
-client = None
-if not FREE_MODE:
-    from openai import OpenAI  # import here to avoid import overhead in free mode
-    client = OpenAI(api_key=API_KEY)
 
-# ---------- Helpers (common) ----------
-def _pick_font(size: int) -> ImageFont.ImageFont:
-    """Pick a font that exists on macOS/Linux; fallback to default."""
-    candidates = [
-        "/System/Library/Fonts/SFNS.ttf",
-        "/System/Library/Fonts/SFNSRounded.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-    for p in candidates:
+# ---------- Text / colour helpers ----------
+_FONT_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
+
+
+def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    for p in _FONT_CANDIDATES:
         if os.path.exists(p):
             try:
                 return ImageFont.truetype(p, size)
-            except Exception:
+            except OSError:
                 continue
-    return ImageFont.load_default()
+    return ImageFont.load_default(size=size)
 
-def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int, max_lines: int = 4) -> List[str]:
-    words = text.split()
-    lines: List[str] = []
-    cur = ""
-    for w in words:
-        trial = (cur + " " + w).strip()
-        bbox = draw.textbbox((0, 0), trial, font=font)
-        if (bbox[2] - bbox[0]) <= max_width:
-            cur = trial
-        else:
-            if cur:
-                lines.append(cur)
-            cur = w
-        if len(lines) >= max_lines:
-            break
-    if cur and len(lines) < max_lines:
-        lines.append(cur)
-    return lines
 
-def _hex_to_rgb(h: str | None, default=(17, 17, 17)) -> Tuple[int, int, int]:
-    if not h or not isinstance(h, str):
+def hex_to_rgb(h: Optional[str], default: Tuple[int, int, int] = (17, 17, 17)) -> Tuple[int, int, int]:
+    if not isinstance(h, str):
         return default
     c = h.strip().lstrip("#")
+    if len(c) == 3:
+        c = "".join(ch * 2 for ch in c)
+    if len(c) != 6:
+        return default
     try:
-        if len(c) == 6:
-            return (int(c[0:2],16), int(c[2:4],16), int(c[4:6],16))
-        if len(c) == 3:
-            return tuple(int(x*2, 16) for x in c)  # type: ignore
-    except Exception:
-        pass
-    return default
+        return (int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
+    except ValueError:
+        return default
 
-# ---------- Assets ----------
-def _pick_music(mood: str | None = "upbeat") -> Path | None:
-    """
-    Return a music asset path if it exists; otherwise None (we'll fall back to silence).
-    """
-    mood = (mood or "upbeat").lower().strip()
-    candidates = {
-        "upbeat": ASSETS_DIR / "music_upbeat.mp3",
-        "chill": ASSETS_DIR / "music_chill.mp3",
-        "corporate": ASSETS_DIR / "music_corporate.mp3",
-        "energetic": ASSETS_DIR / "music_energetic.mp3",
-    }
-    p = candidates.get(mood) or candidates["upbeat"]
-    return p if p.exists() else None
 
-# ---------- TTS ----------
-def tts_generate(text: str, voice: str = "alloy") -> Path:
-    """
-    Generate an MP3 voiceover.
-    - Pro mode: OpenAI TTS (gpt-4o-mini-tts)
-    - Free mode: silent MP3 whose duration ~= reading time
-    """
-    out = EXPORT_DIR / f"vo_{int(time.time()*1000)}.mp3"
+def _shade(rgb: Tuple[int, int, int], factor: float) -> Tuple[int, int, int]:
+    return tuple(max(0, min(255, int(v * factor))) for v in rgb)  # type: ignore[return-value]
 
-    if FREE_MODE or client is None:
-        # Estimate duration: ~14 chars/sec, min 1.2s
-        secs = max(1.2, len(text.strip()) / 14.0)
-        silence = AudioSegment.silent(duration=int(secs * 1000))
-        silence.export(out, format="mp3")
-        return out
 
-    # OpenAI TTS
-    with client.audio.speech.with_streaming_response.create(
-        model="gpt-4o-mini-tts",
-        voice=voice,
-        input=text
+def _ink(bg: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    """Readable text colour (white or near-black) for a background colour."""
+    r, g, b = bg
+    return (17, 17, 17) if (0.299 * r + 0.587 * g + 0.114 * b) > 170 else (255, 255, 255)
+
+
+def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_width: int, max_lines: int = 5) -> List[str]:
+    lines: List[str] = []
+    for paragraph in text.split("\n"):
+        cur = ""
+        for word in paragraph.split():
+            trial = f"{cur} {word}".strip()
+            if draw.textlength(trial, font=font) <= max_width or not cur:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
+        if cur:
+            lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1].rstrip(".,;: ") + "…"
+    return lines
+
+
+def _draw_centered(draw: ImageDraw.ImageDraw, lines: List[str], font, cx: int, cy: int, fill=(255, 255, 255)) -> None:
+    line_h = int(font.size * 1.25)
+    y = cy - (line_h * len(lines)) // 2
+    for line in lines:
+        draw.text((cx, y + line_h // 2), line, font=font, fill=fill, anchor="mm")
+        y += line_h
+
+
+def _gradient(w: int, h: int, color: Tuple[int, int, int]) -> Image.Image:
+    top, bottom = np.array(_shade(color, 1.15)), np.array(_shade(color, 0.35))
+    t = np.linspace(0.0, 1.0, h)[:, None]
+    rows = (top[None, :] * (1 - t) + bottom[None, :] * t).astype(np.uint8)
+    return Image.fromarray(np.repeat(rows[:, None, :], w, axis=1))
+
+
+# ---------- Frames ----------
+def render_text_slide(text: str, size: Tuple[int, int], brand_color: str, brand_name: str = "") -> Image.Image:
+    """Free-mode scene: brand gradient with large centred text."""
+    w, h = size
+    color = hex_to_rgb(brand_color)
+    img = _gradient(w, h, color)
+    draw = ImageDraw.Draw(img)
+    if brand_name:
+        draw.text((w // 2, int(h * 0.08)), brand_name.upper(), font=_font(int(w * 0.035)),
+                  fill=_ink(_shade(color, 1.15)), anchor="mm")
+    font = _font(int(w * 0.075))
+    lines = _wrap(draw, text, font, int(w * 0.82))
+    _draw_centered(draw, lines, font, w // 2, h // 2, fill=_ink(_shade(color, 0.75)))
+    return img
+
+
+def render_endcard(
+    size: Tuple[int, int], brand_color: str, brand_name: str, cta: str = "Try it today →"
+) -> Image.Image:
+    w, h = size
+    color = hex_to_rgb(brand_color)
+    ink = _ink(_shade(color, 0.75))
+    img = _gradient(w, h, color)
+    draw = ImageDraw.Draw(img)
+    title_font = _font(int(w * 0.09))
+    _draw_centered(draw, _wrap(draw, brand_name or "Your Brand", title_font, int(w * 0.85), 2),
+                   title_font, w // 2, int(h * 0.42), fill=ink)
+    btn_w, btn_h = int(w * 0.62), int(w * 0.13)
+    x0, y0 = (w - btn_w) // 2, int(h * 0.42) + int(w * 0.16)
+    draw.rounded_rectangle([x0, y0, x0 + btn_w, y0 + btn_h], radius=btn_h // 2, fill=ink)
+    draw.text((w // 2, y0 + btn_h // 2), cta, font=_font(int(w * 0.05)), fill=_shade(color, 0.6), anchor="mm")
+    return img
+
+
+def _cover(img: Image.Image, size: Tuple[int, int]) -> Image.Image:
+    """Scale and centre-crop an image to exactly fill `size`."""
+    w, h = size
+    scale = max(w / img.width, h / img.height)
+    img = img.resize((math.ceil(img.width * scale), math.ceil(img.height * scale)), Image.LANCZOS)
+    left, top = (img.width - w) // 2, (img.height - h) // 2
+    return img.crop((left, top, left + w, top + h))
+
+
+def _caption_over(img: Image.Image, text: str) -> Image.Image:
+    """Overlay caption text on a darkened band at the bottom of an image."""
+    w, h = img.size
+    band_h = int(h * 0.38)
+    alpha = np.linspace(0, 200, band_h).astype(np.uint8)[:, None].repeat(w, axis=1)
+    shade = Image.new("RGBA", (w, band_h), (0, 0, 0, 0))
+    shade.putalpha(Image.fromarray(alpha))
+    out = img.convert("RGBA")
+    out.alpha_composite(shade, (0, h - band_h))
+    draw = ImageDraw.Draw(out)
+    font = _font(int(w * 0.062))
+    _draw_centered(draw, _wrap(draw, text, font, int(w * 0.86), 3), font, w // 2, h - int(band_h * 0.4))
+    return out.convert("RGB")
+
+
+def _ai_image(prompt: str, size: Tuple[int, int]) -> Image.Image:
+    w, h = size
+    api_size = "1024x1024" if abs(w - h) < 50 else ("1024x1536" if h > w else "1536x1024")
+    res = get_client().images.generate(
+        model="gpt-image-1",
+        prompt=f"Cinematic, photorealistic product advertisement shot, no text or logos in frame. {prompt}",
+        size=api_size,
+        quality=os.getenv("REELIXX_IMAGE_QUALITY", "medium"),
+    )
+    raw = base64.b64decode(res.data[0].b64_json)
+    return _cover(Image.open(io.BytesIO(raw)).convert("RGB"), size)
+
+
+def _tts(text: str, voice: str, out: Path) -> AudioFileClip:
+    with get_client().audio.speech.with_streaming_response.create(
+        model="gpt-4o-mini-tts", voice=voice if voice in VOICES else "alloy", input=text
     ) as resp:
         resp.stream_to_file(out)
-    return out
+    return AudioFileClip(str(out))
 
-# ---------- Music mix ----------
-def bg_music_overlay(voice_path: Path, music_path: Path | None, music_gain_db: float = -15.0) -> Path:
-    """
-    Mix background music under the voice. If music_path is None, just return voice.
-    """
-    voice = AudioSegment.from_file(str(voice_path))
-
-    if music_path and music_path.exists():
-        music = AudioSegment.from_file(str(music_path))
-        # Trim/loop or crop to match voice duration
-        if len(music) < len(voice):
-            # Simple loop if bg track is shorter
-            loops = math.ceil(len(voice) / max(1, len(music)))
-            music = music * loops
-        music = music[: len(voice)]
-        music = music + music_gain_db
-        mixed = music.overlay(voice)
-    else:
-        mixed = voice
-
-    out = EXPORT_DIR / f"mix_{int(time.time()*1000)}.mp3"
-    mixed.export(out, format="mp3")
-    return out
-
-# ---------- Image generation ----------
-def generate_scene_image(prompt: str, size: str = "1024x1536", brand_color: str = "#111111") -> Path:
-    """
-    Create a scene image.
-    - Pro mode: OpenAI gpt-image-1
-    - Free mode: solid background with clean wrapped text
-    """
-    out = EXPORT_DIR / f"scene_{int(time.time()*1000)}.png"
-
-    if FREE_MODE or client is None:
-        # Make a nice 9:16 canvas and place prompt text
-        w, h = (1080, 1920)
-        bg = _hex_to_rgb(brand_color, (17, 17, 17))
-        img = Image.new("RGB", (w, h), bg)
-        draw = ImageDraw.Draw(img)
-
-        title_font = _pick_font(int(h * 0.06))
-        body_w = int(w * 0.8)
-        lines = _wrap(draw, prompt.strip() or " ", title_font, body_w, max_lines=6)
-
-        y = int(h * 0.25)
-        for i, line in enumerate(lines):
-            bb = draw.textbbox((0, 0), line, font=title_font)
-            tw = bb[2] - bb[0]
-            x = (w - tw) // 2
-            draw.text((x, y), line, fill=(255, 255, 255), font=title_font)
-            y += int(title_font.size * 1.25)
-
-        img.save(out, format="PNG", optimize=True)
-        return out
-
-    # OpenAI image
-    res = client.images.generate(
-        model="gpt-image-1",
-        prompt=f"vertical 9:16 cinematic product ad still, {prompt}",
-        size=size,
-        quality="high",
-    )
-    b64 = res.data[0].b64_json
-    img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-    img.save(out, format="PNG", optimize=True)
-    return out
 
 # ---------- Public entry ----------
+def resolve_mode(mode: str | None) -> str:
+    mode = (mode or "auto").lower()
+    if mode == "auto":
+        return "ai" if ai_available() else "free"
+    if mode == "ai" and not ai_available():
+        raise RuntimeError("AI render requested but OPENAI_API_KEY is not set (or REELIXX_FREE_MODE=1).")
+    if mode not in ("ai", "free"):
+        raise ValueError(f"Unknown render mode: {mode!r}")
+    return mode
+
+
+def _scene_text(scene: Dict[str, Any]) -> str:
+    text = str(scene.get("text") or "").strip()
+    if not text:
+        for ov in scene.get("overlay") or []:
+            if isinstance(ov, dict) and ov.get("type") == "text" and ov.get("text"):
+                return str(ov["text"]).strip()
+    return text
+
+
+def _is_endcard(scene: Dict[str, Any]) -> bool:
+    visual = scene.get("visual") or {}
+    return scene.get("id") == "endcard" or (isinstance(visual, dict) and visual.get("type") == "endcard")
+
+
 def generate_ai_ad(
     storyboard: Dict[str, Any],
-    caption: Dict[str, Any] | str,
     *,
     brand_color: str = "#111111",
+    brand_name: str = "",
     music_mood: str | None = "upbeat",
-    tts_voice: str = "alloy",
+    voice: str = "alloy",
+    mode: str | None = "auto",
 ) -> Dict[str, Any]:
-    """
-    Build the ad:
-      - TTS per scene (or silence in free mode)
-      - Background music under VO (or silence if missing)
-      - One image per scene (OpenAI or local slide)
-    """
     scenes: List[Dict[str, Any]] = storyboard.get("scenes") or []
     if not scenes:
         raise ValueError("Storyboard must contain scenes.")
 
-    # background music
-    music_file = _pick_music(music_mood)
+    mode = resolve_mode(mode)
+    canvas = storyboard.get("canvas") or {}
+    size = (int(canvas.get("w", 1080)), int(canvas.get("h", 1920)))
+    fps = int(canvas.get("fps", 30))
 
-    clips = []
-    for s in scenes:
-        # Text source: scene text -> caption string -> caption.caption
-        raw_caption = caption if isinstance(caption, str) else (caption.get("caption") if isinstance(caption, dict) else "")
-        text = (s.get("text") or raw_caption or "").strip() or " "
-
-        # 1) voice
-        voice_mp3 = tts_generate(text, voice=tts_voice)
-
-        # 2) music mix
-        mixed_mp3 = bg_music_overlay(voice_mp3, music_file)
-
-        # 3) image
-        img_path = generate_scene_image(text, size="1024x1536", brand_color=brand_color)
-
-        # 4) clip (duration from audio)
-        audio_clip = AudioFileClip(str(mixed_mp3))
-        frame = np.array(Image.open(img_path).convert("RGB"))
-        clip = (
-            ImageClip(frame)
-            .set_duration(audio_clip.duration)
-            .set_audio(audio_clip)
-            .set_fps(30)
-        )
-        clips.append(clip)
-
-    final = concatenate_videoclips(clips, method="compose")
-
-    ts = int(time.time())
-    filename = f"ai_ad_{ts}.mp4"
+    filename = f"ad_{uuid.uuid4().hex[:12]}.mp4"
     out_path = EXPORT_DIR / filename
-    
-    # Write video file locally first
-    final.write_videofile(
-        str(out_path),
-        fps=30,
-        codec="libx264",
-        audio_codec="aac",
-        threads=2,
-        logger=None,
-    )
-    final.close()
 
-    # Upload to storage (S3 or keep local)
-    file_url = storage.save_file_from_path(out_path, f"videos/{filename}")
-    
-    # Clean up local file if using S3
+    with tempfile.TemporaryDirectory(prefix="reelixx_") as tmp_dir:
+        tmp = Path(tmp_dir)
+        clips: List[ImageClip] = []
+        audio_parts: List[AudioFileClip] = []
+        cursor = 0.0
+
+        for i, scene in enumerate(scenes):
+            text = _scene_text(scene) or " "
+            endcard = _is_endcard(scene)
+            try:
+                planned = float(scene.get("end", 0)) - float(scene.get("start", 0))
+            except (TypeError, ValueError):
+                planned = 0.0
+            duration = planned if planned > 0 else max(1.5, len(text) / 14.0)
+
+            if mode == "ai" and not endcard and text.strip():
+                vo = _tts(text, voice, tmp / f"vo_{i}.mp3")
+                audio_parts.append(vo.set_start(cursor))
+                duration = max(duration, vo.duration + 0.3)
+
+            if endcard:
+                frame = render_endcard(size, brand_color, brand_name or text.split("\n")[0])
+            elif mode == "ai":
+                visual = scene.get("visual") or {}
+                prompt = (visual.get("query") if isinstance(visual, dict) else None) or text
+                frame = _caption_over(_ai_image(prompt, size), text)
+            else:
+                frame = render_text_slide(text, size, brand_color, brand_name)
+
+            clips.append(ImageClip(np.array(frame)).set_duration(duration))
+            cursor += duration
+
+        # One continuous audio bed: looped music under the voiceover lines.
+        voiced = bool(audio_parts)
+        music_path = MUSIC.get((music_mood or "").lower())
+        if music_path and music_path.exists():
+            music = afx.audio_loop(AudioFileClip(str(music_path)), duration=cursor)
+            music = music.volumex(MUSIC_VOLUME if voiced else MUSIC_VOLUME_SOLO).audio_fadeout(min(1.5, cursor))
+            audio_parts.insert(0, music)
+
+        video = concatenate_videoclips(clips, method="chain")
+        if audio_parts:
+            video = video.set_audio(CompositeAudioClip(audio_parts).set_duration(cursor))
+        try:
+            video.write_videofile(
+                str(out_path),
+                fps=fps,
+                codec="libx264",
+                audio_codec="aac",
+                temp_audiofile=str(tmp / "render_audio.m4a"),
+                threads=2,
+                logger=None,
+                ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart"],
+            )
+            duration_s = float(video.duration)
+        finally:
+            video.close()
+            for part in audio_parts:
+                part.close()
+
+    url = storage.save_file_from_path(out_path, f"videos/{filename}")
     if storage.use_s3 and out_path.exists():
         out_path.unlink()
 
-    return {
-        "ok": True,
-        "path": str(out_path),
-        "url": file_url,
-        "filename": filename,
-    }
+    return {"ok": True, "mode": mode, "url": url, "filename": filename, "duration": duration_s}

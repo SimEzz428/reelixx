@@ -1,9 +1,7 @@
-# docker-compose.yml for local development
-version: '3.8'
-
+# Local stack: Postgres + API.  Usage: docker compose up --build
 services:
   db:
-    image: postgres:15
+    image: postgres:16
     environment:
       POSTGRES_DB: reelixx
       POSTGRES_USER: reelixx
@@ -12,19 +10,25 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reelixx"]
+      interval: 5s
+      retries: 10
 
   backend:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      - DATABASE_URL=postgresql://reelixx:reelixx@db:5432/reelixx
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - REELIXX_FREE_MODE=${REELIXX_FREE_MODE:-1}
+      DATABASE_URL: postgresql://reelixx:reelixx@db:5432/reelixx
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
-      - ./app/exports:/app/app/exports
+      - ./app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:

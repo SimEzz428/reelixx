@@ -1,139 +1,77 @@
 from __future__ import annotations
-from typing import Any, Dict, List
+
+from typing import Any, Dict, List, Optional
+
+from .video_ai import FORMATS
+
+ENDCARD_SECONDS = 2.5
+SFX = {"hook": "whoosh", "value": "whoosh", "proof": "soft_pop", "cta": "click"}
 
 
-DEFAULT_CANVAS = {"w": 1080, "h": 1920, "fps": 30}
-
-
-def _overlay_text(text: str, style: str = "default") -> Dict[str, Any]:
-    return {"type": "text", "text": text, "style": style}
-
-
-def _endcard_overlay(brief: Dict[str, Any]) -> List[Dict[str, Any]]:
-
-    brand = brief.get("brand") or {}
-    color = "#111111"
-    logo = None
-
-    if isinstance(brand, dict):
-        color = brand.get("color") or color
-        logo = brand.get("logo_url")
-   
-
-    return [
-        {"type": "panel", "color": color, "alpha": 0.9},
-        {"type": "logo", "url": logo} if logo else {"type": "shape", "shape": "circle"},
-    ]
-
-
-def _beat_visual(beat_id: str, brief: Dict[str, Any]) -> Dict[str, Any]:
-    title = brief.get("title") or "product"
-    images = brief.get("images") or []
-   
-    if images:
-        primary = images[0]
-    else:
-        primary = None
-
+def _visual(beat_id: str, title: str, images: List[str]) -> Dict[str, Any]:
     if beat_id == "hook":
-        return {
-            "type": "image_or_stock",
-            "prefer": primary,
-            "query": f"close-up {title}, dramatic lighting, vertical",
-        }
+        return {"type": "image", "prefer": images[0] if images else None,
+                "query": f"hero shot of {title}, dramatic lighting, close-up"}
     if beat_id == "value":
-        return {
-            "type": "user_or_stock",
-            "query": f"{title} in use, hands-on vertical demo",
-        }
+        return {"type": "image", "query": f"{title} in use, hands-on lifestyle demo"}
     if beat_id == "proof":
-        return {"type": "stock", "query": "happy customer reaction, lifestyle vertical"}
-    if beat_id == "cta":
-        return {"type": "endcard", "brand": True}
-    return {"type": "stock", "query": f"{title} abstract motion"}
+        return {"type": "image", "query": f"happy customer enjoying {title}, lifestyle"}
+    return {"type": "image", "query": f"{title} product shot on clean studio background"}
 
 
-def _transition_in(beat_id: str) -> str:
-    return "cut" if beat_id == "hook" else "whip"
+def brand_name_of(brief: Dict[str, Any], brand: Optional[Dict[str, Any]] = None) -> str:
+    if isinstance(brand, dict) and brand.get("name"):
+        return str(brand["name"]).strip()
+    b = brief.get("brand")
+    if isinstance(b, dict):
+        b = b.get("name")
+    return str(b or brief.get("title") or "Your Brand").strip()
 
 
-def _sfx_for(beat_id: str) -> str:
-    return {
-        "hook": "whoosh",
-        "value": "whoosh",
-        "proof": "soft_pop",
-        "cta": "click",
-    }.get(beat_id, "whoosh")
+def compose_storyboard(
+    script: Dict[str, Any],
+    brief: Dict[str, Any],
+    *,
+    brand: Optional[Dict[str, Any]] = None,
+    fmt: str = "reel",
+) -> Dict[str, Any]:
+    """Turn a timed script into a storyboard the video renderer understands."""
+    title = str(brief.get("title") or "product")
+    images = [i for i in (brief.get("images") or []) if isinstance(i, str)]
+    w, h = FORMATS.get(fmt, FORMATS["reel"])
 
-
-def compose_storyboard(script: Dict[str, Any], brief: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Input: script JSON from generate_script()
-    Output: storyboard JSON the assembler can use later.
-    """
-    beats = script.get("beats", [])
     scenes: List[Dict[str, Any]] = []
-
-    for b in beats:
-        beat_id = b.get("id")
-        scene = {
+    for b in script.get("beats", []):
+        beat_id = b.get("id") or "beat"
+        text = str(b.get("text") or b.get("vo") or "").strip()
+        scenes.append({
             "id": beat_id,
             "start": float(b.get("start", 0.0)),
             "end": float(b.get("end", 0.0)),
-            "visual": _beat_visual(beat_id, brief),
-            "transition_in": _transition_in(beat_id),
-            "overlay": [],
-            "sfx": _sfx_for(beat_id),
-        }
+            "text": text,
+            "visual": _visual(beat_id, title, images),
+            "transition_in": "cut" if beat_id == "hook" else "whip",
+            "overlay": [{"type": "text", "text": text, "style": "cta" if beat_id == "cta" else "caption"}],
+            "sfx": SFX.get(beat_id, "whoosh"),
+        })
 
-   
-        vo_text = (b.get("text") or b.get("vo") or "")[:48]
-        if beat_id in ("hook", "value", "proof"):
-            scene["overlay"].append(_overlay_text(vo_text, style="caption"))
-        elif beat_id == "cta":
-            scene["overlay"].append(_overlay_text("Try it today →", style="cta"))
-            scene["overlay"].extend(_endcard_overlay(brief))
-
-        scenes.append(scene)
-
- 
-    brand = brief.get("brand")
-    if isinstance(brand, dict):
-        brand_name = (brand.get("name") or brief.get("title") or "Your Brand").strip()
-    else:
-       
-        brand_name = (brand or brief.get("title") or "Your Brand").strip()
-
-
-    last_end = 0.0
-    for sc in scenes:
-        try:
-            last_end = max(last_end, float(sc.get("end", 0.0)))
-        except Exception:
-            pass
-
-    endcard_duration = 2.5
-    endcard_scene = {
+    last_end = max((s["end"] for s in scenes), default=0.0)
+    name = brand_name_of(brief, brand)
+    scenes.append({
         "id": "endcard",
         "start": last_end,
-        "end": last_end + endcard_duration,
-        "text": f"{brand_name}\nTry it today →",
+        "end": last_end + ENDCARD_SECONDS,
+        "text": name,
         "visual": {"type": "endcard"},
         "overlay": [{"type": "text", "text": "Try it today →", "style": "cta"}],
         "sfx": "click",
         "transition_in": "whip",
-    }
-    scenes.append(endcard_scene)
-   
+    })
 
     return {
-        "version": "1.0",
-        "canvas": DEFAULT_CANVAS,
-        "audio": {
-            "music": "upbeat_01",
-            "duck": True,
-            "vo_text": " ".join([b.get("vo", "") for b in beats]),
-        },
+        "version": "1.1",
+        "format": fmt if fmt in FORMATS else "reel",
+        "canvas": {"w": w, "h": h, "fps": 30},
+        "audio": {"music": "upbeat", "duck": True, "vo_text": " ".join(s["text"] for s in scenes[:-1])},
         "scenes": scenes,
-        "exports": [{"preset": "vertical_1080p"}],
     }

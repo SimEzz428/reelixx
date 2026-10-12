@@ -1,744 +1,619 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BACKEND_URL } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import {
+  api,
+  downloadUrl,
+  errorText,
+  FORMATS,
+  toAbsolute,
+  type AdFormat,
+  type MusicMood,
+  type PostText,
+  type Project,
+  type Variant,
+} from "@/lib/api";
+import { getBrandDefaults } from "@/lib/brand";
+import { saveAd } from "@/lib/storage";
+import { useHealth } from "@/lib/useHealth";
 
 type Step = 1 | 2 | 3 | 4 | 5;
-type AdType = "video" | "static" | "carousel";
-type Format = "story" | "reel" | "square" | "portrait";
+type AdType = "video" | "static";
+type Quality = "free" | "ai";
 
-type Project = {
-  id: number;
+const STEPS = ["Ad Type", "Format", "Details", "Generate", "Review"];
+const TONES = ["professional", "playful", "energetic", "luxury", "expert"];
+const VOICES = ["alloy", "nova", "shimmer", "echo", "onyx", "fable"];
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+const AD_TYPES: { key: AdType; title: string; desc: string; icon: string }[] = [
+  { key: "video", title: "Video Ad", desc: "Short-form video with captions and music, ready for Reels and TikTok.", icon: "🎬" },
+  { key: "static", title: "Static Image", desc: "On-brand end-card graphic for Stories and Feed posts.", icon: "🖼️" },
+];
+
+const FORMAT_ICONS: Record<AdFormat, string> = { story: "📱", reel: "🎬", square: "⬜", portrait: "📐" };
+
+function Choice({
+  active,
+  onClick,
+  icon,
+  title,
+  children,
+  disabled,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: string;
   title: string;
-  description: string;
-  price: string;
-  brand_name: string;
-  brand_color: string;
-  product_url?: string;
-};
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className={`relative w-full rounded-2xl border p-6 text-left transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+        active
+          ? "border-violet-500/60 bg-gradient-to-br from-violet-600/10 to-fuchsia-500/10 shadow-lg shadow-violet-500/20"
+          : "border-neutral-700 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-800/50"
+      }`}
+    >
+      <div className="mb-3 text-3xl">{icon}</div>
+      <div className="text-lg font-semibold text-white">{title}</div>
+      <div className="mt-1.5 text-sm text-neutral-400">{children}</div>
+      {active && (
+        <div className="absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 text-xs text-white">
+          ✓
+        </div>
+      )}
+    </button>
+  );
+}
 
-type Variant = {
-  id: number;
-  storyboard_json?: any;
-  script_json?: any;
-  preview_url?: string;
-};
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <div className="mb-2 flex items-baseline justify-between text-sm font-medium text-neutral-300">
+        {label}
+        {hint && <span className="text-xs font-normal text-neutral-500">{hint}</span>}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+function NavButtons({
+  canNext,
+  onNext,
+  onBack,
+  nextLabel = "Next",
+}: {
+  canNext: boolean;
+  onNext?: () => void;
+  onBack?: () => void;
+  nextLabel?: string;
+}) {
+  return (
+    <div className="mt-8 flex items-center justify-between">
+      <button type="button" onClick={onBack} disabled={!onBack} className="btn-secondary">
+        ← Back
+      </button>
+      {onNext && (
+        <button type="button" onClick={onNext} disabled={!canNext} className="btn-primary">
+          {nextLabel} →
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function StudioPage() {
-  
+  const { up, aiAvailable } = useHealth();
+
   const [step, setStep] = useState<Step>(1);
   const [adType, setAdType] = useState<AdType>("video");
-  const [format, setFormat] = useState<Format>("reel");
+  const [format, setFormat] = useState<AdFormat>("reel");
 
-
-  const [title, setTitle] = useState("Lumina Water Bottle");
-  const [description, setDescription] = useState(
-    "Self-cleaning bottle with UV-C cap. Keeps water fresh."
-  );
+  const [productUrl, setProductUrl] = useState("");
+  const [campaignName, setCampaignName] = useState("Lumina Launch");
+  const [productName, setProductName] = useState("Lumina Water Bottle");
+  const [description, setDescription] = useState("Self-cleaning bottle with UV-C cap. Keeps water fresh all day.");
+  const [bullets, setBullets] = useState<string[]>([]);
   const [price, setPrice] = useState("49");
   const [brandName, setBrandName] = useState("Lumina");
   const [brandColor, setBrandColor] = useState("#7C3AED");
-  const [productUrl, setProductUrl] = useState("https://example.com/lumina");
 
-  
+  const [quality, setQuality] = useState<Quality>("free");
+  const [music, setMusic] = useState<MusicMood>("upbeat");
+  const [voice, setVoice] = useState("alloy");
+  const [tone, setTone] = useState("professional");
+
   const [project, setProject] = useState<Project | null>(null);
   const [variant, setVariant] = useState<Variant | null>(null);
-  const [storyboard, setStoryboard] = useState<any>(null);
-  const [captionText, setCaptionText] = useState<string>("");
+  const [post, setPost] = useState<PostText | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
-
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const canNextFrom1 = !!adType;
-  const canNextFrom2 = !!format;
+  const fmt = FORMATS[format];
+  const colorValid = HEX.test(brandColor);
   const canNextFrom3 =
-    title.trim().length > 1 && description.trim().length > 4 && brandName.trim().length > 1;
+    productName.trim().length > 1 && description.trim().length > 4 && brandName.trim().length > 0 && colorValid;
 
-  const prettyFormat = useMemo(() => {
-    switch (format) {
-      case "reel":
-        return { label: "Reel", dims: "1080×1920", tag: "9:16" };
-      case "story":
-        return { label: "Story", dims: "1080×1920", tag: "9:16" };
-      case "square":
-        return { label: "Feed Post", dims: "1080×1080", tag: "1:1" };
-      case "portrait":
-        return { label: "Portrait", dims: "1080×1350", tag: "4:5" };
-    }
-  }, [format]);
+  // Prefill from Brand Kit defaults, then from query params (?title=&productName=&description=&price=&brandName=&brandColor=&url=).
+  useEffect(() => {
+    const b = getBrandDefaults();
+    if (b.brandName && b.brandName !== "Brand") setBrandName(b.brandName);
+    if (b.brandColor) setBrandColor(b.brandColor);
+    if (b.musicStyle) setMusic(b.musicStyle);
 
- 
+    const q = new URLSearchParams(window.location.search);
+    const set = (key: string, fn: (v: string) => void) => {
+      const v = q.get(key);
+      if (v) fn(v);
+    };
+    set("title", setCampaignName);
+    set("productName", setProductName);
+    set("description", setDescription);
+    set("price", setPrice);
+    set("brandName", setBrandName);
+    set("brandColor", setBrandColor);
+    set("url", setProductUrl);
+  }, []);
 
-  async function createProject() {
-    setBusy(true);
-    setStatus("Creating project…");
+  // AI can't be selected when the backend has no key.
+  useEffect(() => {
+    if (!aiAvailable && quality === "ai") setQuality("free");
+  }, [aiAvailable, quality]);
+
+  async function importFromUrl() {
+    if (!productUrl.trim()) return;
+    setBusy("import");
     setErr(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/projects/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `${title} Campaign`,
-          product_url: productUrl,
-          brief: {
-            title,
-            description,
-            price,
-            brand: brandName,
-          },
-          brand: {
-            name: brandName,
-            color: brandColor,
-          },
-        }),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`Create failed: ${res.status} — ${t}`);
-      }
-      const data = await res.json();
-      setProject(data);
-      setStatus("Project created");
-      return data as Project;
-    } catch (e: any) {
-      setErr(e.message ?? String(e));
-      setStatus("Error");
-      return null;
+      const r = await api.scrape(productUrl.trim());
+      if (!r.ok || !r.brief) throw new Error(r.reason || "No product details found on that page.");
+      if (r.brief.title) setProductName(r.brief.title.slice(0, 80));
+      if (r.brief.description) setDescription(r.brief.description);
+      setBullets(r.brief.bullets ?? []);
+      toast.success("Imported product details");
+    } catch (e) {
+      toast.error(errorText(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function generateAll(pid: number) {
-    setBusy(true);
-    setStatus("Generating script + storyboard + end-card…");
+  async function generate() {
     setErr(null);
+    setVideoUrl(null);
+    setImageUrl(null);
+    setPost(null);
     try {
-      const gen = await fetch(`${BACKEND_URL}/projects/${pid}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          n_variants: 1,
-          tones: ["professional"],
-          persona: "enthusiastic",
-        }),
+      setBusy("Creating project…");
+      const p = await api.createProject({
+        title: campaignName.trim() || `${productName} Campaign`,
+        product_url: /^https?:\/\//.test(productUrl.trim()) ? productUrl.trim() : undefined,
+        brief: { title: productName.trim(), description: description.trim(), price: price.trim(), brand: brandName.trim(), bullets },
+        brand: { name: brandName.trim(), color: brandColor },
       });
+      setProject(p);
 
-   
-      if (!gen.ok) {
-        const t = await gen.text();
-        throw new Error(`Generate failed: ${gen.status} — ${t}`);
+      setBusy(quality === "ai" ? "Writing script with AI…" : "Writing script…");
+      await api.generate(p.id, { tones: [tone], format, ai_script: quality === "ai" });
+      const v = await api.latestVariant(p.id);
+      setVariant(v);
+      const pt = await api.postText(p.id);
+      setPost(pt);
+
+      const base = {
+        id: `p${p.id}`,
+        projectId: p.id,
+        variantId: v.id,
+        title: campaignName.trim() || productName.trim(),
+        brandName: brandName.trim(),
+        brandColor,
+        format,
+        createdAt: new Date().toISOString(),
+        caption: pt.text,
+      };
+
+      if (adType === "video") {
+        setBusy(quality === "ai" ? "Rendering with AI visuals + voiceover (about a minute)…" : "Rendering video…");
+        const r = await api.assemble(v.id, { mode: quality, music_mood: music, voice });
+        setVideoUrl(r.mp4_url);
+        saveAd({ ...base, adType: "video", videoUrl: r.mp4_url });
+      } else {
+        setBusy("Rendering image…");
+        const r = await api.staticEndcard(p.id, { width: fmt.w, height: fmt.h });
+        if (!r.ok || !r.data_url) throw new Error(r.reason || "Image render failed");
+        setImageUrl(r.data_url);
+        saveAd({ ...base, adType: "static", imageDataUrl: r.data_url });
       }
 
-      const jobData = await gen.json();
-      console.log("Generation job:", jobData);
-      
-      const vres = await fetch(`${BACKEND_URL}/projects/${pid}/variants/latest`);
-      if (!vres.ok) throw new Error(`Fetch latest variant failed: ${vres.status}`);
-      const vdata = await vres.json();
-      setVariant(vdata);
-      setStoryboard(vdata?.storyboard_json || null);
-
-    
-      const pres = await fetch(`${BACKEND_URL}/post_text/projects/${pid}`);
-      if (pres.ok) {
-        const txt = await pres.text();
-        setCaptionText(txt);
-      }
-
-      setStatus("Generated ✅");
-    } catch (e: any) {
-      setErr(e.message ?? String(e));
-      setStatus("Error");
+      toast.success("Your ad is ready");
+      setStep(5);
+    } catch (e) {
+      setErr(errorText(e));
+      toast.error(errorText(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function renderPreview() {
-    if (!variant?.id) return;
-    setBusy(true);
-    setStatus("Rendering MP4 preview…");
-    setErr(null);
+  async function exportZip() {
+    if (!variant) return;
+    setBusy("Preparing ZIP…");
     try {
-     
-      const res = await fetch(`${BACKEND_URL}/variants/${variant.id}/assemble`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`Assemble failed: ${res.status} — ${t}`);
-      }
-    
-      const info = await res.json();
-      const url = info?.mp4_url || info?.url || "";
-      setVariant((v) => (v ? { ...v, preview_url: url } : v));
-      setStatus("Preview ready ✅");
-    } catch (e: any) {
-      setErr(e.message ?? String(e));
-      setStatus("Error");
+      const r = await api.exportZip(variant.id);
+      window.location.href = toAbsolute(r.download);
+    } catch (e) {
+      toast.error(errorText(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function onGenerateClick() {
-   
-    const p = project ?? (await createProject());
-    if (!p) return;
-    await generateAll(p.id);
-    setStep(5);
+  async function copyCaption() {
+    if (!post) return;
+    try {
+      await navigator.clipboard.writeText(post.text);
+      toast.success("Caption copied");
+    } catch {
+      toast.error("Couldn't access the clipboard");
+    }
   }
 
-
-
-  const StepHeader = (
-    <div className="sticky top-0 z-20 mb-8 -mx-6 border-b border-neutral-800/50 bg-gradient-to-b from-neutral-950/95 to-neutral-950/80 px-6 py-6 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl items-center justify-between">
-        <div>
-          <div className="text-sm font-medium text-neutral-400">Creative Studio</div>
-          <h1 className="mt-1 bg-gradient-to-r from-white to-neutral-300 bg-clip-text text-2xl font-bold tracking-tight text-transparent">
-            Create an Ad Campaign
-          </h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900/50 px-3 py-2 text-xs backdrop-blur-sm">
-            <div className="h-2 w-2 rounded-full bg-emerald-400"></div>
-            <span className="text-neutral-300">API Connected</span>
-          </div>
-          <Link
-            href="/"
-            className="rounded-lg border border-neutral-700 bg-neutral-900/50 px-4 py-2 text-sm font-medium text-neutral-200 backdrop-blur-sm transition-all duration-200 hover:border-neutral-600 hover:bg-neutral-800/50 hover:text-white"
-          >
-            Home
-          </Link>
-        </div>
-      </div>
-
-      {/* Enhanced Progress bar */}
-      <div className="mx-auto mt-6 h-2 w-full max-w-7xl overflow-hidden rounded-full bg-neutral-900/50">
-        <div
-          className="h-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 shadow-lg shadow-violet-500/25 transition-all duration-500 ease-out"
-          style={{
-            width:
-              step === 1
-                ? "20%"
-                : step === 2
-                ? "40%"
-                : step === 3
-                ? "65%"
-                : step === 4
-                ? "85%"
-                : "100%",
-          }}
-        />
-      </div>
-      
-      {/* Step indicator */}
-      <div className="mx-auto mt-4 flex max-w-7xl items-center justify-between text-xs text-neutral-500">
-        <span className={step >= 1 ? "text-violet-400" : ""}>Ad Type</span>
-        <span className={step >= 2 ? "text-violet-400" : ""}>Format</span>
-        <span className={step >= 3 ? "text-violet-400" : ""}>Details</span>
-        <span className={step >= 4 ? "text-violet-400" : ""}>Generate</span>
-        <span className={step >= 5 ? "text-violet-400" : ""}>Review</span>
-      </div>
-    </div>
-  );
-
-  function NextPrev({
-    canNext,
-    onNext,
-    onBack,
-    nextLabel = "Next",
-  }: {
-    canNext: boolean;
-    onNext: () => void;
-    onBack?: () => void;
-    nextLabel?: string;
-  }) {
-    return (
-      <div className="mt-8 flex items-center justify-between">
-        <button
-          onClick={onBack}
-          disabled={!onBack}
-          className="group flex items-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900/50 px-6 py-3 text-sm font-medium text-neutral-200 backdrop-blur-sm transition-all duration-200 hover:border-neutral-600 hover:bg-neutral-800/50 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <span className="transition-transform duration-200 group-hover:-translate-x-0.5">←</span>
-          Back
-        </button>
-        <button
-          onClick={onNext}
-          disabled={!canNext || busy}
-          className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-violet-500/40 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-        >
-          <span className="relative z-10">{busy ? "Working…" : nextLabel}</span>
-          <div className="absolute inset-0 bg-gradient-to-r from-violet-500 to-fuchsia-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></div>
-        </button>
-      </div>
-    );
-  }
+  const progress = ((step - 1) / (STEPS.length - 1)) * 100;
+  const scenes = variant?.storyboard_json?.scenes ?? [];
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-950 to-neutral-900 text-neutral-100">
-      <div className="mx-auto max-w-7xl px-6 pb-24">
-        {StepHeader}
+      <div className="mx-auto max-w-7xl px-4 pb-24 sm:px-6">
+        {/* Header + progress */}
+        <div className="py-8">
+          <div className="text-sm font-medium text-neutral-400">Creative Studio</div>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">Create an Ad Campaign</h1>
+          <div className="mt-6 h-2 overflow-hidden rounded-full bg-neutral-900">
+            <div
+              className="h-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
+              style={{ width: `${Math.max(progress, 4)}%` }}
+            />
+          </div>
+          <ol className="mt-3 flex justify-between text-xs text-neutral-500">
+            {STEPS.map((label, i) => (
+              <li key={label} className={step >= i + 1 ? "text-violet-400" : ""}>
+                {label}
+              </li>
+            ))}
+          </ol>
+          {up === false && (
+            <div className="mt-4 rounded-xl border border-rose-900/60 bg-rose-950/30 px-4 py-3 text-sm text-rose-300">
+              The API is offline. Start the backend (<code>make dev-backend</code>) and this page will reconnect.
+            </div>
+          )}
+        </div>
 
-        {/* STEP 1 — Ad Type */}
         {step === 1 && (
-          <section className="rounded-3xl border border-neutral-800 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-8 backdrop-blur-sm">
+          <section className="card sm:p-8">
             <div className="mb-2 text-sm font-medium text-violet-400">Step 1 of 5</div>
-            <h2 className="mb-2 bg-gradient-to-r from-white to-neutral-300 bg-clip-text text-3xl font-bold text-transparent">
-              Choose Ad Type
-            </h2>
-            <p className="mb-8 text-neutral-400">Select the type of ad campaign you want to create</p>
-
-            <div className="grid gap-6 sm:grid-cols-3">
-              {[
-                {
-                  key: "video",
-                  title: "Video Ad",
-                  desc: "Engaging short-form videos perfect for Reels and TikTok",
-                  icon: "🎬",
-                  gradient: "from-blue-500 to-cyan-500",
-                },
-                { 
-                  key: "static", 
-                  title: "Static Image", 
-                  desc: "Graphics for Stories and Feed posts",
-                  icon: "🖼️",
-                  gradient: "from-purple-500 to-pink-500",
-                },
-                { 
-                  key: "carousel", 
-                  title: "Carousel", 
-                  desc: "Swipeable set of images",
-                  icon: "📱",
-                  gradient: "from-green-500 to-emerald-500",
-                },
-              ].map((opt) => {
-                const active = adType === (opt.key as AdType);
-                return (
-                  <button
-                    key={opt.key}
-                    onClick={() => setAdType(opt.key as AdType)}
-                    className={`group relative overflow-hidden rounded-2xl border p-6 text-left transition-all duration-300 ${
-                      active
-                        ? "border-violet-500/60 bg-gradient-to-br from-violet-600/10 to-fuchsia-500/10 shadow-lg shadow-violet-500/25"
-                        : "border-neutral-700 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-800/50"
-                    }`}
-                  >
-                    <div className="relative z-10">
-                      <div className="mb-4 text-3xl">{opt.icon}</div>
-                      <div className="text-lg font-semibold text-white">{opt.title}</div>
-                      <div className="mt-2 text-sm text-neutral-300">{opt.desc}</div>
-                    </div>
-                    
-                    {/* Gradient overlay */}
-                    <div className={`absolute inset-0 bg-gradient-to-br ${opt.gradient} opacity-0 transition-opacity duration-300 group-hover:opacity-5`}></div>
-                    
-                    {/* Selection indicator */}
-                    {active && (
-                      <div className="absolute top-4 right-4 h-6 w-6 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 flex items-center justify-center">
-                        <span className="text-xs text-white">✓</span>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
+            <h2 className="text-3xl font-bold text-white">Choose ad type</h2>
+            <p className="mb-8 mt-2 text-neutral-400">What do you want to make?</p>
+            <div className="grid gap-6 sm:grid-cols-2">
+              {AD_TYPES.map((o) => (
+                <Choice key={o.key} active={adType === o.key} onClick={() => setAdType(o.key)} icon={o.icon} title={o.title}>
+                  {o.desc}
+                </Choice>
+              ))}
             </div>
-
-            <NextPrev canNext={canNextFrom1} onNext={() => setStep(2)} />
+            <NavButtons canNext onNext={() => setStep(2)} />
           </section>
         )}
 
-        {/* STEP 2 — Format */}
         {step === 2 && (
-          <section className="rounded-3xl border border-neutral-800 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-8 backdrop-blur-sm">
+          <section className="card sm:p-8">
             <div className="mb-2 text-sm font-medium text-violet-400">Step 2 of 5</div>
-            <h2 className="mb-2 bg-gradient-to-r from-white to-neutral-300 bg-clip-text text-3xl font-bold text-transparent">
-              Choose Format
-            </h2>
-            <p className="mb-8 text-neutral-400">Select the aspect ratio and dimensions for your ad</p>
-
-            <div className="grid gap-6 sm:grid-cols-4">
-              {[
-                { 
-                  key: "story", 
-                  name: "Story", 
-                  tag: "9:16", 
-                  dims: "1080×1920",
-                  icon: "📱",
-                  gradient: "from-blue-500 to-cyan-500",
-                },
-                { 
-                  key: "reel", 
-                  name: "Reel", 
-                  tag: "9:16", 
-                  dims: "1080×1920",
-                  icon: "🎬",
-                  gradient: "from-purple-500 to-pink-500",
-                },
-                { 
-                  key: "square", 
-                  name: "Feed Post", 
-                  tag: "1:1", 
-                  dims: "1080×1080",
-                  icon: "⬜",
-                  gradient: "from-green-500 to-emerald-500",
-                },
-                { 
-                  key: "portrait", 
-                  name: "Portrait", 
-                  tag: "4:5", 
-                  dims: "1080×1350",
-                  icon: "📐",
-                  gradient: "from-orange-500 to-red-500",
-                },
-              ].map((f) => {
-                const active = format === (f.key as Format);
-                return (
-                  <button
-                    key={f.key}
-                    onClick={() => setFormat(f.key as Format)}
-                    className={`group relative overflow-hidden rounded-2xl border p-6 text-left transition-all duration-300 ${
-                      active
-                        ? "border-violet-500/60 bg-gradient-to-br from-violet-600/10 to-fuchsia-500/10 shadow-lg shadow-violet-500/25"
-                        : "border-neutral-700 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-800/50"
-                    }`}
-                  >
-                    <div className="relative z-10">
-                      <div className="mb-4 text-3xl">{f.icon}</div>
-                      <div className="text-lg font-semibold text-white">{f.name}</div>
-                      <div className="mt-2 text-sm text-neutral-300">
-                        {f.tag} • {f.dims}
-                      </div>
-                    </div>
-                    
-                    {/* Gradient overlay */}
-                    <div className={`absolute inset-0 bg-gradient-to-br ${f.gradient} opacity-0 transition-opacity duration-300 group-hover:opacity-5`}></div>
-                    
-                    {/* Selection indicator */}
-                    {active && (
-                      <div className="absolute top-4 right-4 h-6 w-6 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 flex items-center justify-center">
-                        <span className="text-xs text-white">✓</span>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
+            <h2 className="text-3xl font-bold text-white">Choose format</h2>
+            <p className="mb-8 mt-2 text-neutral-400">The output is rendered at these exact dimensions.</p>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {(Object.keys(FORMATS) as AdFormat[]).map((k) => (
+                <Choice key={k} active={format === k} onClick={() => setFormat(k)} icon={FORMAT_ICONS[k]} title={FORMATS[k].label}>
+                  {FORMATS[k].tag} • {FORMATS[k].w}×{FORMATS[k].h}
+                </Choice>
+              ))}
             </div>
-
-            <NextPrev canNext={canNextFrom2} onNext={() => setStep(3)} onBack={() => setStep(1)} />
+            <NavButtons canNext onNext={() => setStep(3)} onBack={() => setStep(1)} />
           </section>
         )}
 
-        {/* STEP 3 — Content */}
         {step === 3 && (
-          <section className="rounded-3xl border border-neutral-800 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-8 backdrop-blur-sm">
+          <section className="card sm:p-8">
             <div className="mb-2 text-sm font-medium text-violet-400">Step 3 of 5</div>
-            <h2 className="mb-2 bg-gradient-to-r from-white to-neutral-300 bg-clip-text text-3xl font-bold text-transparent">
-              Campaign Details
-            </h2>
-            <p className="mb-8 text-neutral-400">Provide the essential information for your ad campaign</p>
+            <h2 className="text-3xl font-bold text-white">Campaign details</h2>
+            <p className="mb-8 mt-2 text-neutral-400">Paste a product page to auto-fill, or type the details yourself.</p>
 
-            <div className="grid gap-8 lg:grid-cols-2">
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-neutral-300">Product Website URL</div>
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="space-y-5">
+                <Field label="Product page URL" hint="optional">
+                  <div className="flex gap-3">
                     <input
-                      className="w-full rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none ring-0 transition-all duration-200 focus:border-violet-500/60 focus:bg-neutral-800/50"
+                      className="input"
                       value={productUrl}
                       onChange={(e) => setProductUrl(e.target.value)}
-                      placeholder="https://yourproduct.com/page"
+                      placeholder="https://yourstore.com/products/…"
+                      inputMode="url"
                     />
-                  </label>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="block">
-                      <div className="mb-2 text-sm font-medium text-neutral-300">Campaign Name</div>
-                      <input
-                        className="w-full rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none ring-0 transition-all duration-200 focus:border-violet-500/60 focus:bg-neutral-800/50"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="e.g., Summer Sale 2025"
-                      />
-                    </label>
-                    <label className="block">
-                      <div className="mb-2 text-sm font-medium text-neutral-300">Product/Service Name</div>
-                      <input
-                        className="w-full rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none ring-0 transition-all duration-200 focus:border-violet-500/60 focus:bg-neutral-800/50"
-                        value={brandName}
-                        onChange={(e) => setBrandName(e.target.value)}
-                        placeholder="Brand"
-                      />
-                    </label>
+                    <button
+                      type="button"
+                      className="btn-secondary shrink-0"
+                      onClick={importFromUrl}
+                      disabled={!/^https?:\/\/\S+\.\S+/.test(productUrl.trim()) || !!busy}
+                    >
+                      {busy === "import" ? "Importing…" : "Import"}
+                    </button>
                   </div>
+                </Field>
 
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-neutral-300">Product Description</div>
-                    <textarea
-                      className="h-32 w-full rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none ring-0 transition-all duration-200 focus:border-violet-500/60 focus:bg-neutral-800/50"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Key features, benefits, USP…"
-                    />
-                  </label>
-
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <label className="block">
-                      <div className="mb-2 text-sm font-medium text-neutral-300">Target Price (USD)</div>
-                      <input
-                        className="w-full rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none ring-0 transition-all duration-200 focus:border-violet-500/60 focus:bg-neutral-800/50"
-                        value={price}
-                        onChange={(e) => setPrice(e.target.value)}
-                        placeholder="49"
-                      />
-                    </label>
-                    <label className="block sm:col-span-2">
-                      <div className="mb-2 text-sm font-medium text-neutral-300">Brand Color</div>
-                      <div className="flex items-center gap-3">
-                        <input
-                          className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none ring-0 transition-all duration-200 focus:border-violet-500/60 focus:bg-neutral-800/50"
-                          value={brandColor}
-                          onChange={(e) => setBrandColor(e.target.value)}
-                          placeholder="#7C3AED"
-                        />
-                        <div
-                          className="h-12 w-12 rounded-xl border border-neutral-700 shadow-lg"
-                          style={{ background: brandColor }}
-                          title={brandColor}
-                        />
-                      </div>
-                    </label>
-                  </div>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Campaign name">
+                    <input className="input" value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="Summer Launch" />
+                  </Field>
+                  <Field label="Product name">
+                    <input className="input" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Lumina Water Bottle" />
+                  </Field>
                 </div>
+
+                <Field label="Product description" hint="The first sentence becomes the value line">
+                  <textarea
+                    className="input h-32 resize-y"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Key features, benefits, what makes it different…"
+                  />
+                </Field>
+
+                <div className="grid gap-5 sm:grid-cols-3">
+                  <Field label="Price" hint="optional">
+                    <input className="input" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="49" />
+                  </Field>
+                  <Field label="Brand name">
+                    <input className="input" value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="Lumina" />
+                  </Field>
+                  <Field label="Brand color">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        aria-label="Pick brand color"
+                        value={colorValid && brandColor.length === 7 ? brandColor : "#7c3aed"}
+                        onChange={(e) => setBrandColor(e.target.value)}
+                        className="h-[46px] w-12 shrink-0 cursor-pointer rounded-xl border border-neutral-700 bg-neutral-900 p-1"
+                      />
+                      <input
+                        className={`input ${colorValid ? "" : "border-rose-600"}`}
+                        value={brandColor}
+                        onChange={(e) => setBrandColor(e.target.value)}
+                        placeholder="#7C3AED"
+                      />
+                    </div>
+                  </Field>
+                </div>
+                {bullets.length > 0 && (
+                  <div className="text-xs text-neutral-500">
+                    Imported {bullets.length} feature{bullets.length > 1 ? "s" : ""}; the first one becomes the proof line.
+                  </div>
+                )}
               </div>
 
-              {/* Enhanced context summary card */}
-              <div className="rounded-2xl border border-neutral-700 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-6 backdrop-blur-sm">
-                <div className="mb-4 flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-violet-500"></div>
-                  <div className="text-sm font-semibold text-neutral-200">Campaign Summary</div>
-                </div>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-neutral-500">Ad Type:</span>
-                    <span className="text-neutral-200 capitalize">{adType}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-neutral-500">Format:</span>
-                    <span className="text-neutral-200">{prettyFormat.label} • {prettyFormat.tag}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-neutral-500">Dimensions:</span>
-                    <span className="text-neutral-200">{prettyFormat.dims}</span>
-                  </div>
-                  <div className="border-t border-neutral-700 pt-3">
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500">Title:</span>
-                      <span className="text-neutral-200">{title || "—"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500">Brand:</span>
-                      <span className="text-neutral-200">{brandName || "—"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500">Color:</span>
-                      <span className="text-neutral-200">{brandColor}</span>
-                    </div>
-                  </div>
-                  <div className="border-t border-neutral-700 pt-3">
-                    <div className="text-neutral-500">Description:</div>
-                    <div className="mt-1 text-xs text-neutral-300 line-clamp-4">
-                      {description || "No description provided"}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <aside className="h-fit rounded-2xl border border-neutral-700 bg-neutral-900/40 p-6 text-sm">
+                <div className="mb-4 font-semibold text-neutral-200">Summary</div>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+                  <dt className="text-neutral-500">Type</dt>
+                  <dd className="text-right capitalize text-neutral-200">{adType}</dd>
+                  <dt className="text-neutral-500">Format</dt>
+                  <dd className="text-right text-neutral-200">
+                    {fmt.label} · {fmt.tag}
+                  </dd>
+                  <dt className="text-neutral-500">Product</dt>
+                  <dd className="truncate text-right text-neutral-200">{productName || "—"}</dd>
+                  <dt className="text-neutral-500">Brand</dt>
+                  <dd className="flex items-center justify-end gap-2 text-neutral-200">
+                    <span className="h-3 w-3 rounded-full border border-neutral-600" style={{ background: colorValid ? brandColor : "transparent" }} />
+                    {brandName || "—"}
+                  </dd>
+                </dl>
+              </aside>
             </div>
 
-            <NextPrev
-              canNext={canNextFrom3}
-              onNext={() => setStep(4)}
-              onBack={() => setStep(2)}
-            />
+            <NavButtons canNext={canNextFrom3} onNext={() => setStep(4)} onBack={() => setStep(2)} />
           </section>
         )}
 
-        {/* STEP 4 — Generate */}
         {step === 4 && (
-          <section className="rounded-3xl border border-neutral-800 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-8 backdrop-blur-sm">
+          <section className="card sm:p-8">
             <div className="mb-2 text-sm font-medium text-violet-400">Step 4 of 5</div>
-            <h2 className="mb-2 bg-gradient-to-r from-white to-neutral-300 bg-clip-text text-3xl font-bold text-transparent">
-              AI Generation
-            </h2>
-            <p className="mb-8 text-neutral-400">Ready to create your ad content with AI</p>
+            <h2 className="text-3xl font-bold text-white">Generate</h2>
+            <p className="mb-8 mt-2 text-neutral-400">
+              We&apos;ll write the script, build a storyboard and caption, then render your {adType === "video" ? "video" : "image"}.
+            </p>
 
-            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-neutral-700 bg-gradient-to-br from-violet-600/5 to-fuchsia-500/5 p-12 text-center backdrop-blur-sm">
-              <div className="mb-6 text-6xl">✨</div>
-              <div className="mb-2 text-2xl font-semibold text-white">Ready to Generate</div>
-              <div className="mb-8 max-w-md text-neutral-300">
-                We'll create the script, storyboard, end-card, and caption. Then you can render a preview MP4.
-              </div>
-
-              <button
-                onClick={onGenerateClick}
-                disabled={busy}
-                className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-violet-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-violet-500/40 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-              >
-                <span className="relative z-10">{busy ? "Generating…" : "Generate with AI"}</span>
-                <div className="absolute inset-0 bg-gradient-to-r from-violet-500 to-fuchsia-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></div>
-              </button>
-            </div>
-
-            <NextPrev canNext={!busy} onNext={() => setStep(5)} onBack={() => setStep(3)} />
-          </section>
-        )}
-
-        {/* STEP 5 — Review */}
-        {step === 5 && (
-          <section className="rounded-3xl border border-neutral-800 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-8 backdrop-blur-sm">
-            <div className="mb-2 text-sm font-medium text-violet-400">Step 5 of 5</div>
-            <h2 className="mb-2 bg-gradient-to-r from-white to-neutral-300 bg-clip-text text-3xl font-bold text-transparent">
-              Review & Export
-            </h2>
-            <p className="mb-8 text-neutral-400">Review your generated content and export your ad</p>
-
-            <div className="grid gap-8 lg:grid-cols-2">
-              {/* Enhanced Preview panel */}
-              <div className="rounded-2xl border border-neutral-700 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-6 backdrop-blur-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
-                    <div className="text-sm font-semibold text-neutral-200">Live Preview</div>
-                  </div>
-                  <span className="rounded-lg border border-neutral-700 bg-neutral-800/50 px-3 py-1 text-xs text-neutral-300">
-                    {prettyFormat.label.toLowerCase()}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-center">
-                  <div className="relative aspect-[9/16] w-[320px] max-w-full rounded-2xl border border-neutral-700 bg-neutral-900/50 shadow-lg">
-                    {/* If we have a preview URL, show HTML5 video */}
-                    {variant?.preview_url ? (
-                      <video
-                        key={variant.preview_url}
-                        className="h-full w-full rounded-2xl"
-                        src={variant.preview_url}
-                        controls
-                        playsInline
-                      />
-                    ) : (
-                      <div className="absolute inset-0 grid place-items-center text-neutral-500">
-                        <div className="text-6xl">🖼️</div>
-                        <div className="mt-2 text-sm">No preview yet</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <button
-                    onClick={renderPreview}
-                    disabled={busy || !variant?.id}
-                    className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-violet-500/40 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            {adType === "video" && (
+              <div className="mb-8 grid gap-6 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <div className="text-sm font-medium text-neutral-300">Render quality</div>
+                  <Choice active={quality === "free"} onClick={() => setQuality("free")} icon="⚡" title="Free preview">
+                    Branded slides, on-screen copy and music. No API credits used.
+                  </Choice>
+                  <Choice
+                    active={quality === "ai"}
+                    onClick={() => setQuality("ai")}
+                    icon="✨"
+                    title="Full AI"
+                    disabled={!aiAvailable}
                   >
-                    <span className="relative z-10">{busy ? "Rendering…" : "Render MP4 Preview"}</span>
-                    <div className="absolute inset-0 bg-gradient-to-r from-violet-500 to-fuchsia-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></div>
-                  </button>
-
-                  <Link
-                    href={project ? `/review/${project.id}` : "#"}
-                    className="rounded-xl border border-neutral-700 bg-neutral-900/50 px-6 py-3 text-sm font-medium text-neutral-200 backdrop-blur-sm transition-all duration-200 hover:border-neutral-600 hover:bg-neutral-800/50 hover:text-white"
-                  >
-                    Review JSON
-                  </Link>
-                  <Link
-                    href={project ? `/share/${project.id}` : "#"}
-                    className="rounded-xl border border-neutral-700 bg-neutral-900/50 px-6 py-3 text-sm font-medium text-neutral-200 backdrop-blur-sm transition-all duration-200 hover:border-neutral-600 hover:bg-neutral-800/50 hover:text-white"
-                  >
-                    Open Share
-                  </Link>
+                    {aiAvailable
+                      ? "AI-written script, generated visuals and voiceover. Uses OpenAI credits."
+                      : "Add OPENAI_API_KEY to backend/.env and set REELIXX_FREE_MODE=0 to enable."}
+                  </Choice>
                 </div>
-              </div>
-
-              {/* Enhanced Right column: details */}
-              <div className="space-y-6">
-                <div className="rounded-2xl border border-neutral-700 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-6 backdrop-blur-sm">
-                  <div className="mb-4 flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-blue-500"></div>
-                    <div className="text-sm font-semibold text-neutral-200">Ad Details</div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="text-neutral-500">Campaign</div>
-                    <div className="text-neutral-200">{title || "—"}</div>
-                    <div className="text-neutral-500">Product</div>
-                    <div className="text-neutral-200">{brandName || "—"}</div>
-                    <div className="text-neutral-500">Format</div>
-                    <div className="text-neutral-200">
-                      {adType} • {prettyFormat.tag.toLowerCase()}
-                    </div>
-                    <div className="text-neutral-500">Brand color</div>
-                    <div className="text-neutral-200">{brandColor}</div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-neutral-700 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-6 backdrop-blur-sm">
-                  <div className="mb-4 flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-green-500"></div>
-                    <div className="text-sm font-semibold text-neutral-200">Caption / Post text</div>
-                  </div>
-                  <div className="rounded-xl border border-neutral-800 bg-neutral-950/50 p-4 text-sm text-neutral-300">
-                    {captionText || "No caption yet."}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-neutral-700 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-6 backdrop-blur-sm">
-                  <div className="mb-4 flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-purple-500"></div>
-                    <div className="text-sm font-semibold text-neutral-200">Storyboard (JSON)</div>
-                  </div>
-                  <pre className="max-h-[200px] overflow-auto rounded-xl border border-neutral-800 bg-neutral-950/50 p-4 text-xs text-neutral-300">
-                    {storyboard ? JSON.stringify(storyboard, null, 2) : "No storyboard yet."}
-                  </pre>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    disabled={!variant?.preview_url}
-                    onClick={() => {
-                      if (!variant?.preview_url) return;
-                      window.open(variant.preview_url, "_blank");
-                    }}
-                    className="rounded-xl border border-neutral-700 bg-neutral-900/50 px-6 py-3 text-sm font-medium text-neutral-200 backdrop-blur-sm transition-all duration-200 hover:border-neutral-600 hover:bg-neutral-800/50 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Export Ad
-                  </button>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(captionText || "")}
-                    disabled={!captionText}
-                    className="rounded-xl border border-neutral-700 bg-neutral-900/50 px-6 py-3 text-sm font-medium text-neutral-200 backdrop-blur-sm transition-all duration-200 hover:border-neutral-600 hover:bg-neutral-800/50 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Copy Caption
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {(status || err) && (
-              <div className="mt-8 rounded-xl border border-neutral-700 bg-neutral-900/50 p-4 backdrop-blur-sm">
-                <div className="flex items-center gap-2 text-sm">
-                  {status && <span className="text-neutral-300">{status}</span>}
-                  {err && <span className="text-rose-400">{err}</span>}
+                <div className="space-y-5">
+                  <Field label="Tone">
+                    <select className="input capitalize" value={tone} onChange={(e) => setTone(e.target.value)}>
+                      {TONES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Music">
+                    <select className="input" value={music} onChange={(e) => setMusic(e.target.value as MusicMood)}>
+                      <option value="upbeat">Upbeat</option>
+                      <option value="chill">Chill</option>
+                      <option value="luxury">Luxury</option>
+                      <option value="none">No music</option>
+                    </select>
+                  </Field>
+                  <Field label="Voice" hint={quality === "ai" ? undefined : "Full AI only"}>
+                    <select
+                      className="input capitalize"
+                      value={voice}
+                      onChange={(e) => setVoice(e.target.value)}
+                      disabled={quality !== "ai"}
+                    >
+                      {VOICES.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                 </div>
               </div>
             )}
+
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-neutral-700 bg-gradient-to-br from-violet-600/5 to-fuchsia-500/5 p-10 text-center">
+              <button type="button" onClick={generate} disabled={!!busy || up === false} className="btn-primary px-8 py-4 text-base">
+                {busy ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Working…
+                  </>
+                ) : (
+                  "Generate ad"
+                )}
+              </button>
+              <div className="mt-4 min-h-5 text-sm text-neutral-400" aria-live="polite">
+                {busy ?? ""}
+              </div>
+              {err && <div className="mt-2 max-w-xl text-sm text-rose-400">{err}</div>}
+            </div>
+
+            <NavButtons canNext={false} onBack={busy ? undefined : () => setStep(3)} />
+          </section>
+        )}
+
+        {step === 5 && (
+          <section className="card sm:p-8">
+            <div className="mb-2 text-sm font-medium text-violet-400">Step 5 of 5</div>
+            <h2 className="text-3xl font-bold text-white">Review & export</h2>
+            <p className="mb-8 mt-2 text-neutral-400">Your ad is saved to the Library on this device.</p>
+
+            <div className="grid gap-8 lg:grid-cols-2">
+              <div className="rounded-2xl border border-neutral-700 bg-neutral-900/40 p-6">
+                <div className="mb-4 flex items-center justify-between text-sm">
+                  <span className="font-semibold text-neutral-200">Preview</span>
+                  <span className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300">
+                    {fmt.label} · {fmt.tag}
+                  </span>
+                </div>
+                <div className="flex justify-center">
+                  <div
+                    className="relative w-full max-w-[320px] overflow-hidden rounded-2xl border border-neutral-700 bg-black"
+                    style={{ aspectRatio: `${fmt.w} / ${fmt.h}` }}
+                  >
+                    {videoUrl ? (
+                      <video key={videoUrl} className="h-full w-full" src={toAbsolute(videoUrl)} controls playsInline autoPlay muted />
+                    ) : imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- data URL from the API
+                      <img src={imageUrl} alt={`${brandName} end-card`} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="absolute inset-0 grid place-items-center text-sm text-neutral-500">No preview</div>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  {videoUrl && (
+                    <>
+                      <a href={downloadUrl(videoUrl)} className="btn-primary">
+                        Download MP4
+                      </a>
+                      <button type="button" className="btn-secondary" onClick={exportZip} disabled={!!busy}>
+                        Export ZIP
+                      </button>
+                    </>
+                  )}
+                  {imageUrl && (
+                    <a href={imageUrl} download={`${brandName || "reelixx"}-${format}.png`} className="btn-primary">
+                      Download PNG
+                    </a>
+                  )}
+                  {project && (
+                    <Link href={`/share/${project.id}`} className="btn-secondary">
+                      Share page
+                    </Link>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-neutral-700 bg-neutral-900/40 p-6">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-neutral-200">Caption</span>
+                    <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={copyCaption} disabled={!post}>
+                      Copy
+                    </button>
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm text-neutral-300">{post?.caption ?? "—"}</p>
+                  {post && <p className="mt-3 text-sm text-violet-300/80">{post.hashtags.join(" ")}</p>}
+                </div>
+
+                {scenes.length > 0 && (
+                  <div className="rounded-2xl border border-neutral-700 bg-neutral-900/40 p-6">
+                    <div className="mb-3 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-neutral-200">Script</span>
+                      {project && (
+                        <Link href={`/review/${project.id}`} className="text-xs text-neutral-400 underline-offset-4 hover:text-white hover:underline">
+                          Storyboard JSON
+                        </Link>
+                      )}
+                    </div>
+                    <ol className="space-y-2 text-sm">
+                      {scenes.map((s) => (
+                        <li key={s.id} className="flex gap-3">
+                          <span className="w-20 shrink-0 font-mono text-xs leading-5 text-neutral-500">
+                            {s.start.toFixed(1)}–{s.end.toFixed(1)}s
+                          </span>
+                          <span className="text-neutral-300">
+                            <span className="mr-2 text-xs uppercase tracking-wide text-violet-400">{s.id}</span>
+                            {s.text}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                <button type="button" className="btn-secondary w-full" onClick={() => setStep(4)}>
+                  Try different settings
+                </button>
+              </div>
+            </div>
           </section>
         )}
       </div>

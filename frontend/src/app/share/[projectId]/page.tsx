@@ -1,207 +1,146 @@
-
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { BACKEND_URL, toAbsolute } from "@/lib/api";
-
-type Variant = {
-  id: number;
-  storyboard_json?: any;
-  script_json?: any;
-};
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { api, downloadUrl, errorText, FORMATS, toAbsolute, type PostText, type Project, type Variant } from "@/lib/api";
 
 export default function SharePage() {
-  const params = useParams<{ projectId: string }>();
-  const pid = Number(params.projectId);
+  const { projectId } = useParams<{ projectId: string }>();
+  const pid = Number(projectId);
 
+  const [project, setProject] = useState<Project | null>(null);
   const [variant, setVariant] = useState<Variant | null>(null);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [postText, setPostText] = useState<string>("");
-  const [status, setStatus] = useState<string>("");
+  const [post, setPost] = useState<PostText | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const downloadHref = useMemo(() => {
-    if (!videoUrl) return "";
-    const name = videoUrl.split("/").pop();
-    if (!name) return "";
-    return toAbsolute(`/exports/download/${name}`);
-  }, [videoUrl]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
-    async function boot() {
-      setBusy(true);
-      setStatus("Loading…");
-      setError(null);
+    if (!Number.isFinite(pid)) return;
+    (async () => {
       try {
-        // latest variant
-        const vres = await fetch(`${BACKEND_URL}/projects/${pid}/variants/latest`);
-        if (!vres.ok) throw new Error(`variant fetch failed: ${vres.status}`);
-        const vdata = await vres.json();
-        setVariant(vdata);
-
-        // try to read MP4 url if already assembled
-        const maybe = vdata?.assembled_mp4 || vdata?.mp4_url || null; // optional field
-        if (maybe) {
-          setVideoUrl(maybe);
-        } else {
-          // fall back: see if a conventional name exists
-          const guess = `/exports/variant_${vdata?.id}.mp4`;
-          setVideoUrl(guess);
-        }
-
-        // post text
-        const pres = await fetch(`${BACKEND_URL}/post_text/projects/${pid}`);
-        if (pres.ok) {
-          const pdata = await pres.json();
-          setPostText(pdata?.text || JSON.stringify(pdata));
-        }
-        setStatus("Ready ✅");
-      } catch (e: any) {
-        setError(e.message ?? String(e));
-        setStatus("Error");
+        const [p, v] = await Promise.all([api.getProject(pid), api.latestVariant(pid)]);
+        setProject(p);
+        setVariant(v);
+        setPost(await api.postText(pid));
+      } catch (e) {
+        setError(errorText(e));
       } finally {
-        setBusy(false);
+        setLoading(false);
       }
-    }
-    if (Number.isFinite(pid)) boot();
+    })();
   }, [pid]);
 
-  async function handleDownloadMp4() {
-    if (!videoUrl) return;
-    setBusy(true);
-    setError(null);
-    setStatus("Downloading MP4…");
+  async function render() {
+    if (!variant) return;
+    setBusy("Rendering…");
     try {
-      const abs = toAbsolute(videoUrl);
-      const res = await fetch(abs);
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`fetch mp4 failed: ${res.status} — ${t}`);
-      }
-      const blob = await res.blob();
-      const name = videoUrl.split("/").pop() || "reelixx.mp4";
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setStatus("MP4 downloaded ✅");
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
-      setStatus("Error downloading MP4");
+      const r = await api.assemble(variant.id, { mode: "free" });
+      setVariant({ ...variant, mp4_url: r.mp4_url });
+      toast.success("Video rendered");
+    } catch (e) {
+      toast.error(errorText(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function handleDownloadZip() {
-    if (!variant?.id) return;
-    setBusy(true);
-    setError(null);
-    setStatus("Preparing export ZIP…");
+  async function exportZip() {
+    if (!variant) return;
+    setBusy("Preparing ZIP…");
     try {
-      const res = await fetch(`${BACKEND_URL}/variants/${variant.id}/export_zip`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`export_zip failed: ${res.status} — ${t}`);
-      }
-      const data = await res.json();
-      const dl = data?.download ? toAbsolute(data.download) : null;
-      if (!dl) throw new Error("No download URL returned");
-      window.location.href = dl;
-      setStatus("Export ZIP ready ✅");
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-      setStatus("Error exporting ZIP");
+      const r = await api.exportZip(variant.id);
+      window.location.href = toAbsolute(r.download);
+    } catch (e) {
+      toast.error(errorText(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+
+  async function copy() {
+    if (!post) return;
+    await navigator.clipboard.writeText(post.text).then(
+      () => toast.success("Caption copied"),
+      () => toast.error("Couldn't access the clipboard")
+    );
+  }
+
+  const fmt = FORMATS[variant?.storyboard_json?.format ?? "reel"] ?? FORMATS.reel;
+  const title = project?.title || project?.brief_json?.title || `Project #${pid}`;
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-neutral-100">
-      <div className="mx-auto max-w-5xl p-6">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Reelixx — Share</h1>
-            <p className="text-xs text-neutral-400">Project #{pid}</p>
-          </div>
-          <Link
-            href={`/studio?p=${pid}`}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-sm hover:bg-neutral-800"
-          >
-            Open in Studio
+    <main className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
+      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs text-neutral-500">Project #{pid}</p>
+          <h1 className="mt-1 text-3xl font-bold text-white">{loading ? "Loading…" : title}</h1>
+        </div>
+        <div className="flex gap-2">
+          <Link href={`/review/${pid}`} className="btn-secondary">
+            Storyboard
           </Link>
-        </header>
+          <Link href="/studio" className="btn-secondary">
+            New ad
+          </Link>
+        </div>
+      </header>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          {/* Video */}
-          <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
-            <h2 className="mb-3 text-lg font-medium">Preview MP4</h2>
-            {videoUrl ? (
-              <>
-                <video
-                  src={toAbsolute(videoUrl)}
-                  controls
-                  className="aspect-[9/16] w-full max-w-sm rounded-md border border-neutral-800 bg-black"
-                />
-                <div className="mt-3 flex items-center gap-3">
-                  <button
-                    onClick={handleDownloadMp4}
-                    disabled={busy || !videoUrl}
-                    className="text-sm underline text-neutral-300 disabled:opacity-50"
+      {error ? (
+        <div className="card text-sm text-rose-400">{error}</div>
+      ) : (
+        !loading && (
+          <div className="grid gap-6 md:grid-cols-2">
+            <section className="card">
+              <h2 className="mb-4 font-semibold text-white">Video</h2>
+              {variant?.mp4_url ? (
+                <>
+                  <div
+                    className="mx-auto w-full max-w-[320px] overflow-hidden rounded-xl border border-neutral-800 bg-black"
+                    style={{ aspectRatio: `${fmt.w} / ${fmt.h}` }}
                   >
-                    Download MP4
-                  </button>
-                  <a
-                    href={toAbsolute(videoUrl)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm underline text-neutral-300"
-                  >
-                    Open in new tab
-                  </a>
-                  <button
-                    onClick={handleDownloadZip}
-                    disabled={busy || !variant?.id}
-                    className="text-sm underline text-neutral-300 disabled:opacity-50"
-                  >
-                    Download ZIP (MP4 + JSON)
+                    <video src={toAbsolute(variant.mp4_url)} controls playsInline className="h-full w-full" />
+                  </div>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <a href={downloadUrl(variant.mp4_url)} className="btn-primary">
+                      Download MP4
+                    </a>
+                    <button type="button" onClick={exportZip} disabled={!!busy} className="btn-secondary">
+                      {busy === "Preparing ZIP…" ? busy : "Export ZIP"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="py-6 text-sm text-neutral-400">
+                  <p>This project has no rendered video yet.</p>
+                  <button type="button" onClick={render} disabled={!!busy || !variant} className="btn-primary mt-4">
+                    {busy ?? "Render free preview"}
                   </button>
                 </div>
-              </>
-            ) : (
-              <p className="text-sm text-neutral-400">No MP4 found for this project.</p>
-            )}
-          </section>
+              )}
+            </section>
 
-          {/* Post copy */}
-          <section className="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
-            <h2 className="mb-3 text-lg font-medium">Post Copy</h2>
-            {postText ? (
-              <pre className="whitespace-pre-wrap text-sm text-neutral-300">{postText}</pre>
-            ) : (
-              <p className="text-sm text-neutral-400">No post text.</p>
-            )}
-          </section>
-        </div>
-
-        {(status || error) && (
-          <div className="mt-6 text-sm">
-            <span className="text-neutral-300">{status}</span>
-            {error ? <span className="ml-3 text-rose-400">{error}</span> : null}
+            <section className="card">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-semibold text-white">Post copy</h2>
+                <button type="button" onClick={copy} disabled={!post} className="btn-secondary px-3 py-1.5 text-xs">
+                  Copy
+                </button>
+              </div>
+              {post ? (
+                <>
+                  <p className="whitespace-pre-wrap text-sm text-neutral-300">{post.caption}</p>
+                  <p className="mt-3 text-sm text-violet-300/80">{post.hashtags.join(" ")}</p>
+                </>
+              ) : (
+                <p className="text-sm text-neutral-500">No post copy.</p>
+              )}
+            </section>
           </div>
-        )}
-      </div>
+        )
+      )}
     </main>
   );
 }

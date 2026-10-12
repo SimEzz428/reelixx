@@ -14,7 +14,6 @@ def get_post_text(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-  
     v = (
         db.query(models.Variant)
         .filter(models.Variant.project_id == project_id)

@@ -1,11 +1,9 @@
 from __future__ import annotations
-from sqlalchemy import JSON
 
 import enum
+
 from sqlalchemy import JSON, Column, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, JSON
-from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from .db import Base
 
@@ -42,11 +40,10 @@ class Variant(Base):
     mp4_url = Column(Text, nullable=True)
     srt_url = Column(Text, nullable=True)
     post_text = Column(Text, nullable=True)
+    script_json = Column(JSON, nullable=True)
+    storyboard_json = Column(JSON, nullable=True)
 
     project = relationship("Project", back_populates="variants")
-
-    script_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    storyboard_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Job(Base):

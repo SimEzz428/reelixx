@@ -1,78 +1,81 @@
 "use client";
 
-import StudioShell from "@/components/StudioShell";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import type { MusicMood } from "@/lib/api";
 import { getBrandDefaults, saveBrandDefaults } from "@/lib/brand";
-import React, { useEffect, useState } from "react";
+
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 export default function BrandKitPage() {
   const [brandName, setBrandName] = useState("");
-  const [brandColor, setBrandColor] = useState("#8B5CF6");
-  const [musicStyle, setMusicStyle] = useState<"upbeat"|"chill"|"none">("upbeat");
-  const [platform, setPlatform] = useState<"instagram"|"tiktok"|"facebook"|"youtube">("instagram");
-  const [status, setStatus] = useState<string>("");
+  const [brandColor, setBrandColor] = useState("#7C3AED");
+  const [musicStyle, setMusicStyle] = useState<MusicMood>("upbeat");
 
   useEffect(() => {
     const b = getBrandDefaults();
     setBrandName(b.brandName);
     setBrandColor(b.brandColor);
     setMusicStyle(b.musicStyle);
-    setPlatform(b.platform);
   }, []);
 
+  const valid = HEX.test(brandColor);
+
   const save = () => {
-    saveBrandDefaults({ brandName, brandColor, musicStyle, platform });
-    setStatus("Saved ✅ — new Create/Studio sessions will use these.");
-    setTimeout(() => setStatus(""), 2500);
+    saveBrandDefaults({ brandName: brandName.trim(), brandColor, musicStyle });
+    toast.success("Brand defaults saved — new Studio sessions will use them.");
   };
 
   return (
-    <StudioShell>
-      <div className="px-2">
-        <h1 className="text-3xl font-semibold">Brand Kit</h1>
-        <p className="mt-2 text-neutral-300">Set defaults used by Create and Studio.</p>
+    <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+      <h1 className="text-3xl font-bold text-white">Brand Kit</h1>
+      <p className="mt-2 text-neutral-400">Defaults the Studio starts with. Stored in this browser.</p>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className="mb-1 block text-neutral-300">Brand name</span>
-            <input value={brandName} onChange={(e)=>setBrandName(e.target.value)}
-              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 outline-none"/>
-          </label>
+      <div className="card mt-8 grid gap-6 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="mb-2 block font-medium text-neutral-300">Brand name</span>
+          <input className="input" value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="Lumina" />
+        </label>
 
-          <label className="block text-sm">
-            <span className="mb-1 block text-neutral-300">Brand color</span>
-            <input type="color" value={brandColor} onChange={(e)=>setBrandColor(e.target.value)}
-              className="h-[42px] w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 outline-none"/>
-          </label>
+        <label className="block text-sm">
+          <span className="mb-2 block font-medium text-neutral-300">Brand color</span>
+          <div className="flex gap-2">
+            <input
+              type="color"
+              aria-label="Pick brand color"
+              value={valid && brandColor.length === 7 ? brandColor : "#7c3aed"}
+              onChange={(e) => setBrandColor(e.target.value)}
+              className="h-[46px] w-12 shrink-0 cursor-pointer rounded-xl border border-neutral-700 bg-neutral-900 p-1"
+            />
+            <input className={`input ${valid ? "" : "border-rose-600"}`} value={brandColor} onChange={(e) => setBrandColor(e.target.value)} />
+          </div>
+        </label>
 
-          <label className="block text-sm">
-            <span className="mb-1 block text-neutral-300">Default music style</span>
-            <select value={musicStyle} onChange={(e)=>setMusicStyle(e.target.value as any)}
-              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 outline-none">
-              <option value="upbeat">Upbeat</option>
-              <option value="chill">Chill</option>
-              <option value="none">None</option>
-            </select>
-          </label>
+        <label className="block text-sm">
+          <span className="mb-2 block font-medium text-neutral-300">Default music</span>
+          <select className="input" value={musicStyle} onChange={(e) => setMusicStyle(e.target.value as MusicMood)}>
+            <option value="upbeat">Upbeat</option>
+            <option value="chill">Chill</option>
+            <option value="luxury">Luxury</option>
+            <option value="none">No music</option>
+          </select>
+        </label>
 
-          <label className="block text-sm">
-            <span className="mb-1 block text-neutral-300">Default platform</span>
-            <select value={platform} onChange={(e)=>setPlatform(e.target.value as any)}
-              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 outline-none">
-              <option value="instagram">Instagram</option>
-              <option value="tiktok">TikTok</option>
-              <option value="facebook">Facebook</option>
-              <option value="youtube">YouTube</option>
-            </select>
-          </label>
+        <div className="flex items-end">
+          <div
+            className="flex h-[46px] w-full items-center justify-center rounded-xl text-sm font-semibold"
+            style={{ background: valid ? brandColor : "#262626", color: "#fff" }}
+          >
+            {brandName || "Preview"}
+          </div>
         </div>
 
-        <div className="mt-6">
-          <button onClick={save} className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-neutral-900">
+        <div className="sm:col-span-2">
+          <button type="button" onClick={save} disabled={!valid} className="btn-primary">
             Save defaults
           </button>
-          {status && <span className="ml-3 text-sm text-neutral-300">{status}</span>}
         </div>
       </div>
-    </StudioShell>
+    </main>
   );
 }

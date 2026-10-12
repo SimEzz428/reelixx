@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import Any, Dict, List
 import re
-import random
+
+from .script_ai import format_price
 
 
 def _slugify_words(text: str) -> List[str]:
@@ -13,8 +14,8 @@ def _slugify_words(text: str) -> List[str]:
 def _mix_hashtags(
     product_words: List[str], tone: str | None, persona: str | None
 ) -> List[str]:
-    core = {f"#{w}" for w in product_words}
-    generic = {
+    core = [f"#{w}" for w in product_words]
+    generic = [
         "#tiktokmademebuyit",
         "#viral",
         "#musthave",
@@ -25,21 +26,20 @@ def _mix_hashtags(
         "#deal",
         "#trend",
         "#foryou",
-    }
-    style = set()
+    ]
+    style: List[str] = []
     t = (tone or "").lower()
     p = (persona or "").lower()
     if "lux" in t:
-        style |= {"#luxury", "#premium"}
+        style += ["#luxury", "#premium"]
     if "playful" in t:
-        style |= {"#fun", "#aesthetic"}
+        style += ["#fun", "#aesthetic"]
     if "expert" in t:
-        style |= {"#protips", "#howto"}
+        style += ["#protips", "#howto"]
     if "gen" in p:
-        style |= {"#genz", "#relatable"}
-    pool = list(core | generic | style)
-    random.shuffle(pool)
-    return pool[:10]
+        style += ["#genz", "#relatable"]
+    # Product-specific tags first, then style, then generic reach tags (stable order, no dupes).
+    return list(dict.fromkeys(core + style + generic))[:10]
 
 
 def generate_post_text(
@@ -57,18 +57,15 @@ def generate_post_text(
     beats = script.get("beats") or []
     hook = ""
     if beats:
-        hook = str(beats[0].get("vo") or beats[0].get("text") or "").strip()
+        hook = str(beats[0].get("text") or beats[0].get("vo") or "").strip()
 
-    base = hook or f"Meet {title}" if title else "Stop scrolling"
+    base = hook or (f"Meet {title}." if title else "Stop scrolling.")
     base = re.sub(r"\s+", " ", base).strip()
-    if price:
-        cta = f" Tap to get yours — only {price}."
-    else:
-        cta = " Tap to get yours today."
-    caption = (base[:95] + "…") if len(base) > 98 else base
-    caption = caption + cta
+    price_txt = format_price(price)
+    cta = f" Tap to get yours — only {price_txt}." if price_txt else " Tap to get yours today."
+    caption = ((base[:95] + "…") if len(base) > 98 else base) + cta
 
     product_words = _slugify_words(title or "")
     hashtags = _mix_hashtags(product_words, tone, persona)
 
-    return {"caption": caption, "hashtags": hashtags}
+    return {"caption": caption, "hashtags": hashtags, "text": f"{caption}\n\n{' '.join(hashtags)}"}

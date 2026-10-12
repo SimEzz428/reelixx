@@ -1,38 +1,21 @@
-# Dockerfile for Reelixx Backend
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libpq-dev \
-    gcc \
+# ffmpeg renders video; DejaVu provides fonts for on-screen text; curl is for the healthcheck.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg fonts-dejavu-core curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
+ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
 
-# Copy requirements first for better caching
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
-
-# Create exports directory
+COPY app ./app
 RUN mkdir -p app/exports
 
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
-
-# Expose port
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -fsS http://localhost:8000/health || exit 1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Run the application
-CMD ["gunicorn", "app.main:app", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]
+CMD ["sh", "-c", "gunicorn app.main:app -w ${WEB_CONCURRENCY:-2} -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT:-8000} --timeout 300"]

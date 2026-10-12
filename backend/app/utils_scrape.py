@@ -19,12 +19,12 @@ HEADERS = {
 
 
 def _text(el) -> str:
-   
+
     return re.sub(r"\s+", " ", (el.get_text(" ", strip=True) if el else "")).strip()
 
 
 def _meta(soup: BeautifulSoup, *names: str) -> str:
-    
+
     for n in names:
         tag = soup.find("meta", property=n) or soup.find("meta", attrs={"name": n})
         if tag:
@@ -35,10 +35,9 @@ def _meta(soup: BeautifulSoup, *names: str) -> str:
 
 
 def _pick_images(soup: BeautifulSoup, base_url: str) -> List[str]:
-   
+
     urls: List[str] = []
 
-   
     for tag in soup.find_all("meta", property="og:image"):
         u = (tag.get("content") or "").strip()
         if u:
@@ -50,7 +49,6 @@ def _pick_images(soup: BeautifulSoup, base_url: str) -> List[str]:
             continue
         urls.append(urljoin(base_url, u))
 
-   
     def good(u: str) -> bool:
         return u.startswith("http://") or u.startswith("https://")
 
@@ -64,7 +62,7 @@ def _pick_images(soup: BeautifulSoup, base_url: str) -> List[str]:
 
 
 def _pick_bullets(soup: BeautifulSoup) -> List[str]:
-    
+
     bullets: List[str] = []
     candidates = []
     for sel in [
@@ -85,7 +83,6 @@ def _pick_bullets(soup: BeautifulSoup) -> List[str]:
         if len(bullets) >= 12:
             break
 
-
     out, seen = [], set()
     for b in bullets:
         b = b.strip(" •-—").strip()
@@ -93,6 +90,7 @@ def _pick_bullets(soup: BeautifulSoup) -> List[str]:
             seen.add(b)
             out.append(b)
     return out[:8]
+
 
 def scrape_url(url: str) -> Dict:
 
@@ -133,21 +131,4 @@ def scrape_url(url: str) -> Dict:
     }
 
 
-def scrape_brief(url: str) -> Dict:
-
-    data = scrape_url(url)
-
-    
-    brief = {
-        "ok": True,
-        "title": data["title"],
-        "description": data["description"],
-        "bullets": data["bullets"],
-        "voice": "alloy",
-        "music_mood": "upbeat",
-        "tone": "energetic",
-    }
-    return brief
-
-
-__all__ = ["scrape_url", "scrape_brief"]
+__all__ = ["scrape_url"]

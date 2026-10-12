@@ -1,14 +1,15 @@
-# --- General ---
+# --- OS / editors ---
 .DS_Store
 .vscode/
 .idea/
 
-# --- Environment secrets ---
+# --- Secrets (templates are committed) ---
 .env
-frontend/.env
-backend/.env
+.env.*
+!.env.example
+!.env.local.example
 
-# --- Node/Next ---
+# --- Node / Next ---
 node_modules/
 .next/
 out/
@@ -17,19 +18,17 @@ dist/
 # --- Python ---
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 .pytest_cache/
 .venv/
 .envrc
 
-# --- App artifacts ---
+# --- App data & generated media ---
+*.db
+*.db.bak
+*.sqlite3
 backend/app/exports/
-# keep assets; just ignore rendered outputs above
-
-# --- Logs ---
+exports/
 *.log
 
-.env
-.env.*
-*.env
+# --- Stray clones ---
+reelixx.git/

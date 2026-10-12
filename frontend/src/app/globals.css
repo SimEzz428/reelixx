@@ -72,13 +72,6 @@ html, body {
   background: rgba(139, 92, 246, 0.7);
 }
 
-/* Smooth transitions for all interactive elements */
-* {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-
 /* Focus styles */
 .focus-ring {
   @apply focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:ring-offset-2 focus:ring-offset-neutral-950;
@@ -99,24 +92,25 @@ html, body {
   -webkit-text-fill-color: transparent;
 }
 
-/* Custom button hover effects */
+/* Shared building blocks */
 .btn-primary {
-  @apply relative overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-violet-500/40 hover:scale-105;
+  @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-violet-500/40 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none;
 }
 
-.btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-  transition: left 0.5s;
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900/50 px-5 py-2.5 text-sm font-medium text-neutral-200 transition-colors duration-200 hover:border-neutral-600 hover:bg-neutral-800/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
-.btn-primary:hover::before {
-  left: 100%;
+.btn-danger {
+  @apply inline-flex items-center justify-center rounded-xl border border-rose-900/60 bg-rose-950/40 px-4 py-2.5 text-sm text-rose-300 transition-colors hover:bg-rose-900/40;
+}
+
+.input {
+  @apply w-full rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none transition-colors duration-200 focus:border-violet-500/70 focus:bg-neutral-800/50;
+}
+
+.card {
+  @apply rounded-2xl border border-neutral-800 bg-gradient-to-br from-neutral-900/50 to-neutral-950/50 p-6 backdrop-blur-sm;
 }
 
 /* Card hover effects */

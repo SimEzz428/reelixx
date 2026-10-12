@@ -1,94 +1,71 @@
 # backend/app/main.py
 from __future__ import annotations
-from pathlib import Path
-import os
-from dotenv import load_dotenv
 
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
+from .ai_client import ai_available  # noqa: E402
+from .db import Base, engine  # noqa: E402
+from .routers import ai, assemble, exportpack, jobs, posttext, projects, scrape, staticgen  # noqa: E402
+from .storage import EXPORT_DIR  # noqa: E402
 
-from app.routers import scrape, projects, jobs, staticgen, posttext, assemble, exportpack
-from app.routers.ai_generate import router as ai_router
-from app.routers.ai_pro import router as ai_pro_router
-from app.routers.ai_auto import router as ai_auto_router  
+app = FastAPI(title="Reelixx API", version="1.1.0", docs_url="/docs", redoc_url=None)
 
-from .db import Base, engine
-
-app = FastAPI(title="Reelixx API", version="1.0.0", docs_url="/docs", redoc_url=None)
-
-
-# CORS configuration
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002").split(",")
-if os.getenv("ENVIRONMENT") == "development":
-    cors_origins.append("*")  # Allow all origins in development
+DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", DEFAULT_ORIGINS).split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True,
+    # Vercel preview deployments get unique subdomains.
+    allow_origin_regex=os.getenv("CORS_ORIGIN_REGEX") or None,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 Base.metadata.create_all(bind=engine)
 
 
-EXPORT_DIR = Path(__file__).resolve().parent / "exports"
-EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/exports", StaticFiles(directory=str(EXPORT_DIR)), name="exports")
-
-
-@app.get("/exports/download/{filename}")
+@app.get("/exports/download/{filename}", tags=["export"])
 def force_download(filename: str):
-    file_path = EXPORT_DIR / filename
-    if not file_path.exists():
+    """Serve an export with Content-Disposition: attachment."""
+    file_path = (EXPORT_DIR / filename).resolve()
+    if file_path.parent != EXPORT_DIR.resolve() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Not Found")
-    return FileResponse(
-        path=str(file_path),
-        media_type="application/octet-stream",
-        filename=filename,
-    )
+    return FileResponse(path=str(file_path), media_type="application/octet-stream", filename=filename)
+
+
+# Mounted after the download route so /exports/download/* isn't shadowed.
+app.mount("/exports", StaticFiles(directory=str(EXPORT_DIR)), name="exports")
 
 
 @app.get("/health", tags=["meta"])
 def health():
-    """Health check endpoint for load balancer"""
     try:
-        # Test database connection
-        from .db import engine
-        from sqlalchemy import text
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        
-        return {
-            "ok": True,
-            "db": True,
-            "environment": os.getenv("ENVIRONMENT", "development")
-        }
-    except Exception as e:
-        return {
-            "ok": False,
-            "db": False,
-            "error": str(e),
-            "environment": os.getenv("ENVIRONMENT", "development")
-        }
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {"ok": db_ok, "db": db_ok, "ai": ai_available()}
 
 
-
-app.include_router(scrape.router,      prefix="/scrape",          tags=["scrape"])
-app.include_router(projects.router,    prefix="/projects",        tags=["projects"])
-app.include_router(jobs.router,        prefix="/jobs",            tags=["jobs"])
-app.include_router(staticgen.router,   prefix="/generate_static", tags=["static"])
-app.include_router(posttext.router,    prefix="/post_text",       tags=["post_text"])
-app.include_router(assemble.router,    prefix="",                 tags=["assemble"])   
-app.include_router(exportpack.router,  prefix="",                 tags=["export"])    
-app.include_router(ai_router,          prefix="/ai",              tags=["ai"])
-app.include_router(ai_pro_router,      prefix="/ai",              tags=["ai-pro"])     
-app.include_router(ai_auto_router,     prefix="/ai",              tags=["ai-auto"])   
+app.include_router(scrape.router, prefix="/scrape", tags=["scrape"])
+app.include_router(projects.router, prefix="/projects", tags=["projects"])
+app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
+app.include_router(staticgen.router, prefix="/generate_static", tags=["static"])
+app.include_router(posttext.router, prefix="/post_text", tags=["post_text"])
+app.include_router(assemble.router, tags=["assemble"])
+app.include_router(exportpack.router, tags=["export"])
+app.include_router(ai.router, prefix="/ai", tags=["ai"])

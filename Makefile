@@ -1,31 +1,27 @@
-# Simple helper commands for local dev
+# Local development helpers. Run `make setup` once, then `make dev-backend` and `make dev-frontend`.
+PY := backend/.venv/bin/python
 
-# 🐍 Backend
+.PHONY: setup dev-backend dev-frontend test lint build
+
+setup:
+	python3 -m venv backend/.venv
+	$(PY) -m pip install -r backend/requirements-dev.txt
+	cd frontend && npm ci
+	@test -f backend/.env || cp backend/.env.example backend/.env
+	@test -f frontend/.env.local || cp frontend/.env.local.example frontend/.env.local
+
 dev-backend:
-	@echo "🚀 Starting FastAPI on port 8000..."
-	cd backend && source ../.venv/bin/activate && uvicorn app.main:app --reload --port 8000
+	cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000
 
-# 💻 Frontend
 dev-frontend:
-	@echo "🌐 Starting Next.js on port 3000..."
 	cd frontend && npm run dev
 
-# 🧹 Lint & Format
+test:
+	cd backend && .venv/bin/python -m pytest -q
+
 lint:
-	@echo "🔍 Checking Python..."
-	flake8 backend/app || true
-	@echo "🔍 Checking frontend..."
-	cd frontend && npx eslint . || true
+	$(PY) -m flake8 backend
+	cd frontend && npm run lint && npm run typecheck
 
-format:
-	@echo "✨ Formatting Python..."
-	black backend/app
-	@echo "✨ Formatting frontend..."
-	cd frontend && npx prettier --write .
-
-
-demo:
-\tcd frontend && npm run dev:all
-
-ready:
-\tcd frontend && npm run dev:ready
+build:
+	cd frontend && npm run build

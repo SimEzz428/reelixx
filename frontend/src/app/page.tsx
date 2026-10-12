@@ -21,9 +21,8 @@ export default function MarketingHome() {
             </h1>
             
             <p className="mx-auto mt-6 max-w-3xl text-lg leading-relaxed text-neutral-300">
-              Reelixx transforms a simple product brief into a complete 9:16 video campaign — 
-              AI-generated script, storyboard, captions, end-card, and MP4 preview. 
-              All powered by your local FastAPI backend.
+              Reelixx turns a product brief — or just a product URL — into a ready-to-post video ad:
+              script, storyboard, caption, end-card and MP4, in Reel, Story, Square or Portrait format.
             </p>
 
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -56,7 +55,7 @@ export default function MarketingHome() {
             {[
               {
                 title: "Script Generation",
-                desc: "Hook → Value → Proof → CTA beats with precise timestamps.",
+                desc: "Hook → Value → Proof → CTA beats with precise timestamps, AI-written when enabled.",
                 emoji: "✍️",
                 gradient: "from-blue-500 to-cyan-500",
               },
@@ -68,19 +67,19 @@ export default function MarketingHome() {
               },
               {
                 title: "Static End-card",
-                desc: "On-brand PNG with custom colors + optional logo integration.",
+                desc: "On-brand PNG end-card in your brand color, sized for any format.",
                 emoji: "🪪",
                 gradient: "from-green-500 to-emerald-500",
               },
               {
                 title: "MP4 Preview",
-                desc: "Vertical video (1080×1920) rendered via MoviePy engine.",
+                desc: "Free branded preview, or full AI visuals with voiceover and music.",
                 emoji: "🎬",
                 gradient: "from-red-500 to-orange-500",
               },
               {
                 title: "Post Copy",
-                desc: "Auto-generated captions & hashtags optimized per platform.",
+                desc: "Auto-generated caption and hashtags, ready to copy.",
                 emoji: "💬",
                 gradient: "from-indigo-500 to-purple-500",
               },
@@ -137,14 +136,14 @@ export default function MarketingHome() {
               {
                 step: "2",
                 title: "Generate",
-                text: "Script, storyboard, static end-card and MP4 preview.",
+                text: "Script, storyboard, caption and a rendered MP4 or image.",
                 icon: "✨",
                 gradient: "from-purple-500 to-pink-500",
               },
               {
                 step: "3",
                 title: "Export",
-                text: "Download ZIP (MP4 + JSONs) or share the link.",
+                text: "Download the MP4, a ZIP with everything, or share the link.",
                 icon: "🚀",
                 gradient: "from-green-500 to-emerald-500",
               },
